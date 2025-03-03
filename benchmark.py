@@ -174,7 +174,7 @@ def profile_and_monitor(func):
     return wrapper
 
 @profile_and_monitor
-def dummy(range_mod=2**24, modulo=7, range_sum=2**8, ):
+def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
     """
     A dummy heavy function simulating intensive computation that also allocates additional memory.
     """
