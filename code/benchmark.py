@@ -10,6 +10,7 @@ import gc
 
 STEP_SECOND = 0.5  # Sampling interval for CPU busy percentage in seconds
 PLOT = False  # Set to False to disable plotting
+BATTERY = False # TODO : battery monitoring if boolean
 
 def profile_and_monitor(func):
     """
