@@ -48,7 +48,7 @@ def profile_and_monitor(func):
         monitor_times = [] # Time in seconds
         busy_percentages = [] # CPU busy percentage (100 - idle)
         memory_usages = []  # Memory usage delta (current - mem_before)
-        battery_percentages = [] # Battery percentage delta (current - battery_before)
+        #battery_percentages = [] # Battery percentage delta (current - battery_before)
 
         # Record initial 
         process = psutil.Process()
@@ -59,7 +59,7 @@ def profile_and_monitor(func):
         def monitor():
             monitor_start = time.perf_counter()
             mem_before = process.memory_info().rss  # in bytes
-            battery_before = psutil.sensors_battery().percent
+            #battery_before = psutil.sensors_battery().percent
 
             # Continuously sample
             while not stop_monitoring.is_set():
@@ -67,14 +67,14 @@ def profile_and_monitor(func):
                 cpu_times = psutil.cpu_times_percent(interval=STEP_SECOND)
                 current_time = time.perf_counter() - monitor_start
                 current_memory = process.memory_info().rss - mem_before
-                current_battery = psutil.sensors_battery().percent - battery_before
+                #current_battery = psutil.sensors_battery().percent - battery_before
 
                 # Calculate busy percentage.
                 busy = 100 - cpu_times.idle
                 monitor_times.append(current_time)
                 busy_percentages.append(busy)
                 memory_usages.append(current_memory)
-                battery_percentages.append(current_battery)
+                #battery_percentages.append(current_battery)
         
         ### MONITORING 
 
@@ -91,7 +91,7 @@ def profile_and_monitor(func):
 
         ### POST MONITORING
 
-        print(battery_percentages)
+        #print(battery_percentages)
 
         ## Calculate
         # Execution Time
@@ -109,7 +109,7 @@ def profile_and_monitor(func):
         min_cpu_busy = min(busy_percentages) if busy_percentages else 0
 
         # Battery Percentage
-        last_battery = battery_percentages[-1] if battery_percentages else 0
+        #last_battery = battery_percentages[-1] if battery_percentages else 0
 
         ## Logs
         # Log the profiling results.
@@ -128,8 +128,8 @@ def profile_and_monitor(func):
         log_message(f"- Max CPU Busy Percentage: {max_cpu_busy:.2f}%")
         log_message(f"- Min CPU Busy Percentage: {min_cpu_busy:.2f}%")
 
-        log_message(f"## Battery Percentage")
-        log_message(f"- Last Battery: {last_battery:.10f}% pts")
+        #log_message(f"## Battery Percentage")
+        #log_message(f"- Last Battery: {last_battery:.10f}% pts")
 
         ### PLOT
 
@@ -162,8 +162,9 @@ def profile_and_monitor(func):
 
         plot_graph(monitor_times, [busy_percentages],"Time (seconds)", ["CPU Busy Percentage"], "CPU Busy Percentage Over Time", ['tab:red'], "graph_cpu.png")
         plot_graph(monitor_times, [memory_usages],"Time (seconds)", ["Memory Usage (bytes)"], "Memory Usage Over Time", ['tab:blue'], "graph_ram.png")
-        plot_graph(monitor_times, [battery_percentages],"Time (seconds)", ["Battery Percentage"], "Battery Percentage Over Time", ['tab:green'], "graph_battery.png")
-        plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],"Time (seconds)", ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage"], "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green'], "graph_all.png")
+        #plot_graph(monitor_times, [battery_percentages],"Time (seconds)", ["Battery Percentage"], "Battery Percentage Over Time", ['tab:green'], "graph_battery.png")
+        #plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],"Time (seconds)", ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage"], "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green'], "graph_all.png")
+        plot_graph(monitor_times, [busy_percentages, memory_usages],"Time (seconds)", ["CPU Busy Percentage", "Memory Usage (bytes)"], "System Stats Over Time", ['tab:red', 'tab:blue'], "graph_all.png")
         
         ### RESULT
 
