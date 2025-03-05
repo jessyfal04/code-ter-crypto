@@ -26,7 +26,7 @@ def profile_and_monitor(func):
 
         # Create timestamped folder
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        folder_name = f"results_profile/{func.__name__}_{timestamp}"
+        folder_name = f"../results_profile/{func.__name__}_{timestamp}"
         os.makedirs(folder_name, exist_ok=True)
         
         # Log file

@@ -19,8 +19,8 @@ sshfs vm@vm1:ter vm/vm1
 sshfs vm@vm2:ter vm/vm2
 
 # Create folder and cp codes
--- mkdir vm/vm1/results_profile
--- mkdir vm/vm2/results_profile
+mkdir vm/vm1/results_profile
+mkdir vm/vm2/results_profile
 
 # Install python env
 cp requirements.txt vm/vm1
