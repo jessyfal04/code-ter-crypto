@@ -13,7 +13,7 @@ MESSAGE_SIZE = 2**10
 MESSAGE_NB = 2**2
 KEY_LENGTH = 2**12
 
-PORT = 12340  # Port for communication
+PORT = 12344  # Port for communication
 BUFFER_SIZE = 2**31  # Buffer size for message transfer
 
 def generate_keypair():

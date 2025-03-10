@@ -13,7 +13,7 @@ import pyRAPL.pyRAPL
 STEP_SECOND = 0.5  # Sampling interval for CPU busy percentage in seconds
 
 PLOT_PRINT = False    # Set to True to enable plotting and printing
-BATTERY = True  # Set to True to enable battery monitoring
+BATTERY = False  # Set to True to enable battery monitoring
 if BATTERY:
     pyRAPL.setup()
 
@@ -160,7 +160,8 @@ def profile_and_monitor(number=1):
                         memory_usages.append(current_memory)
                         network_sent.append(current_network_bytes_sent)
                         network_received.append(current_network_bytes_received)
-                        battery_consumption.append(current_battery_consumption)
+                        if BATTERY:
+                            battery_consumption.append(current_battery_consumption)
                 
                 # Start monitoring in a separate thread.
                 monitor_thread = threading.Thread(target=monitor, daemon=True)
@@ -235,7 +236,8 @@ def profile_and_monitor(number=1):
                 plot_graph(monitor_times, [network_received],
                         "Time (seconds)", ["Network Bytes Received"],
                         "Network Bytes Over Time", ['tab:purple'], "graph_network_received.png", run_folder)
-                plot_graph(monitor_times, [battery_consumption],
+                if BATTERY:
+                    plot_graph(monitor_times, [battery_consumption],
                         "Time (seconds)", ["Battery Consumption (Joules)"],
                         "Battery Consumption Over Time", ['tab:orange'], "graph_battery.png", run_folder)
                 
