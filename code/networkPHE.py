@@ -30,16 +30,16 @@ def decrypt_messages(private_key, encrypted_messages):
     return [private_key.decrypt(m) for m in encrypted_messages]
 
 def send_data(sock, data):
-    global network_bytes_sent
+    global current_network_bytes_sent
     data_bytes = data.encode('utf-8')
-    benchmark.network_bytes_sent += len(data_bytes)
+    benchmark.current_network_bytes_sent += len(data_bytes)
     sock.sendall(data_bytes)
     
 def receive_data(sock):
-    global network_bytes_received
+    global current_network_bytes_received
     data = sock.recv(BUFFER_SIZE)
     decoded_data = data.decode('utf-8')
-    benchmark.network_bytes_received += len(decoded_data.encode('utf-8'))
+    benchmark.current_network_bytes_received += len(decoded_data.encode('utf-8'))
     return decoded_data
 
 def serialize_data(public_key, encrypted_number_list):
