@@ -9,16 +9,17 @@ from datetime import datetime
 import gc
 
 STEP_SECOND = 0.5  # Sampling interval for CPU busy percentage in seconds
-PLOT = False  # Set to False to disable plotting
-BATTERY = False # TODO : battery monitoring if boolean
+
+PLOT = False    # Set to False to disable plotting
+BATTERY = False  # Set to True to enable battery monitoring
+COMBINED = False # Set to True to include battery data in the combined graph
 
 def profile_and_monitor(func):
     """
     A decorator that profiles the function's execution time and memory usage,
-    while concurrently monitoring the CPU busy percentage and memory usage over time.
+    while concurrently monitoring the CPU busy percentage, memory usage, and battery level (if enabled) over time.
     After execution, it prints the execution time, the maximum extra memory used,
-    and the average CPU busy percentage, then plots and saves a graph with CPU busy percentage
-    and memory usage over time.
+    and the average CPU busy percentage, then plots and saves graphs with system metrics over time.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -27,7 +28,7 @@ def profile_and_monitor(func):
 
         # Create timestamped folder
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        folder_name = f"../results_profile/{func.__name__}_{timestamp}"
+        folder_name = f"results_profile/{func.__name__}_{timestamp}"
         os.makedirs(folder_name, exist_ok=True)
         
         # Log file
@@ -46,12 +47,12 @@ def profile_and_monitor(func):
         log_message(f"- Keyword Arguments: {kwargs}")
 
         # Lists for storing monitoring data.
-        monitor_times = [] # Time in seconds
-        busy_percentages = [] # CPU busy percentage (100 - idle)
-        memory_usages = []  # Memory usage delta (current - mem_before)
-        #battery_percentages = [] # Battery percentage delta (current - battery_before)
+        monitor_times = []         # Time in seconds
+        busy_percentages = []      # CPU busy percentage (100 - idle)
+        memory_usages = []         # Memory usage delta (current - mem_before)
+        battery_percentages = [] if BATTERY else None
 
-        # Record initial 
+        # Record initial process state
         process = psutil.Process()
         start_time = time.perf_counter()
         
@@ -60,22 +61,24 @@ def profile_and_monitor(func):
         def monitor():
             monitor_start = time.perf_counter()
             mem_before = process.memory_info().rss  # in bytes
-            #battery_before = psutil.sensors_battery().percent
+            if BATTERY:
+                battery_sensor = psutil.sensors_battery()
+                battery_before = battery_sensor.percent if battery_sensor is not None else None
 
             # Continuously sample
             while not stop_monitoring.is_set():
-                # psutil.cpu_times_percent waits for STEP_SECOND seconds.
                 cpu_times = psutil.cpu_times_percent(interval=STEP_SECOND)
                 current_time = time.perf_counter() - monitor_start
                 current_memory = process.memory_info().rss - mem_before
-                #current_battery = psutil.sensors_battery().percent - battery_before
 
-                # Calculate busy percentage.
                 busy = 100 - cpu_times.idle
                 monitor_times.append(current_time)
                 busy_percentages.append(busy)
                 memory_usages.append(current_memory)
-                #battery_percentages.append(current_battery)
+                if BATTERY and battery_before is not None:
+                    # Record current battery percentage (if sensor available)
+                    current_battery = psutil.sensors_battery().percent
+                    battery_percentages.append(current_battery)
         
         ### MONITORING 
 
@@ -92,9 +95,6 @@ def profile_and_monitor(func):
 
         ### POST MONITORING
 
-        #print(battery_percentages)
-
-        ## Calculate
         # Execution Time
         end_time = time.perf_counter()
         execution_time = end_time - start_time
@@ -109,11 +109,6 @@ def profile_and_monitor(func):
         max_cpu_busy = max(busy_percentages) if busy_percentages else 0
         min_cpu_busy = min(busy_percentages) if busy_percentages else 0
 
-        # Battery Percentage
-        #last_battery = battery_percentages[-1] if battery_percentages else 0
-
-        ## Logs
-        # Log the profiling results.
         log_message(f"# Profiling Results")
 
         log_message(f"## Execution Time")
@@ -129,8 +124,14 @@ def profile_and_monitor(func):
         log_message(f"- Max CPU Busy Percentage: {max_cpu_busy:.2f}%")
         log_message(f"- Min CPU Busy Percentage: {min_cpu_busy:.2f}%")
 
-        #log_message(f"## Battery Percentage")
-        #log_message(f"- Last Battery: {last_battery:.10f}% pts")
+        if BATTERY and battery_percentages:
+            avg_battery = np.mean(battery_percentages)
+            max_battery = max(battery_percentages)
+            min_battery = min(battery_percentages)
+            log_message(f"## Battery Percentage")
+            log_message(f"- Average Battery Percentage: {avg_battery:.2f}%")
+            log_message(f"- Max Battery Percentage: {max_battery:.2f}%")
+            log_message(f"- Min Battery Percentage: {min_battery:.2f}%")
 
         ### PLOT
 
@@ -161,11 +162,31 @@ def profile_and_monitor(func):
             if PLOT:
                 plt.show()
 
-        plot_graph(monitor_times, [busy_percentages],"Time (seconds)", ["CPU Busy Percentage"], "CPU Busy Percentage Over Time", ['tab:red'], "graph_cpu.png")
-        plot_graph(monitor_times, [memory_usages],"Time (seconds)", ["Memory Usage (bytes)"], "Memory Usage Over Time", ['tab:blue'], "graph_ram.png")
-        #plot_graph(monitor_times, [battery_percentages],"Time (seconds)", ["Battery Percentage"], "Battery Percentage Over Time", ['tab:green'], "graph_battery.png")
-        #plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],"Time (seconds)", ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage"], "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green'], "graph_all.png")
-        plot_graph(monitor_times, [busy_percentages, memory_usages],"Time (seconds)", ["CPU Busy Percentage", "Memory Usage (bytes)"], "System Stats Over Time", ['tab:red', 'tab:blue'], "graph_all.png")
+        # Plot CPU Busy Percentage graph.
+        plot_graph(monitor_times, [busy_percentages],
+                   "Time (seconds)", ["CPU Busy Percentage"],
+                   "CPU Busy Percentage Over Time", ['tab:red'], "graph_cpu.png")
+        # Plot Memory Usage graph.
+        plot_graph(monitor_times, [memory_usages],
+                   "Time (seconds)", ["Memory Usage (bytes)"],
+                   "Memory Usage Over Time", ['tab:blue'], "graph_ram.png")
+        # Plot Battery Percentage graph if battery monitoring is enabled.
+        if BATTERY and battery_percentages:
+            plot_graph(monitor_times, [battery_percentages],
+                       "Time (seconds)", ["Battery Percentage"],
+                       "Battery Percentage Over Time", ['tab:green'], "graph_battery.png")
+        
+        # Plot Combined graph: include battery data if enabled and available.
+        if COMBINED and BATTERY and battery_percentages:
+            plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],
+                       "Time (seconds)",
+                       ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage"],
+                       "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green'], "graph_all.png")
+        elif COMBINED:
+            plot_graph(monitor_times, [busy_percentages, memory_usages],
+                       "Time (seconds)",
+                       ["CPU Busy Percentage", "Memory Usage (bytes)"],
+                       "System Stats Over Time", ['tab:red', 'tab:blue'], "graph_all.png")
         
         ### RESULT
 
@@ -185,14 +206,14 @@ def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
     totalMod = 0
     totalSum = 0
 
-    # Modulo
+    # Modulo computation
     extra_memory = [i for i in range(range_mod)]
     for value in extra_memory:
         totalMod += value % modulo
     del extra_memory
     gc.collect()
 
-    # Sum
+    # Sum computation
     time.sleep(2)
     extra_memory = [i for i in range(range_sum)]
     totalSum = sum(extra_memory)
