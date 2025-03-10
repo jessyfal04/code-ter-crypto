@@ -13,7 +13,7 @@ MESSAGE_SIZE = 2**10
 MESSAGE_NB = 2**2
 KEY_LENGTH = 2**12
 
-PORT = 12342  # Port for communication
+PORT = 12340  # Port for communication
 BUFFER_SIZE = 2**31  # Buffer size for message transfer
 
 def generate_keypair():
@@ -62,7 +62,7 @@ def deserialize_data(serialized_data):
     ]
     return public_key_rec, enc_nums_rec
 
-@profile_and_monitor
+@profile_and_monitor(number=2)
 def client(server_ip):
     # Generate messages and keys
     messages = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
@@ -77,7 +77,7 @@ def client(server_ip):
     
     # Connect to server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((server_ip, PORT))
+    sock.connect((server_ip, PORT+benchmark.current_run))
     
     print("> Sending DataToCompute to Server")
     # Prepare data to send
@@ -114,11 +114,11 @@ def client(server_ip):
     
     sock.close()
 
-@profile_and_monitor
+@profile_and_monitor(number=2)
 def server():
     # Create socket server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("0.0.0.0", PORT))
+    sock.bind(("0.0.0.0", PORT+benchmark.current_run))
     sock.listen(1)
     print("> Waiting for client connection...")
     

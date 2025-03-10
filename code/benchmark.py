@@ -17,6 +17,7 @@ BATTERY = False  # Set to True to enable battery monitoring
 
 network_bytes_sent = 0  # Global variable to store network bytes sent
 network_bytes_received = 0  # Global variable to store network bytes received
+current_run = 0
 
 def profile_and_monitor(number=1):
     """
@@ -110,6 +111,9 @@ def profile_and_monitor(number=1):
             
             # Run the function "number" times.
             for run in range(number):
+                global current_run
+                current_run = run
+
                 # Create a subfolder for this run.
                 run_folder = os.path.join(main_folder, f"run_{run+1}")
                 os.makedirs(run_folder, exist_ok=True)
@@ -163,6 +167,8 @@ def profile_and_monitor(number=1):
                 # Start monitoring in a separate thread.
                 monitor_thread = threading.Thread(target=monitor, daemon=True)
                 monitor_thread.start()
+
+                print(Fore.WHITE)
                 
                 # Execute the target function.
                 result = func(*args, **kwargs)
@@ -405,3 +411,4 @@ def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
 if __name__ == '__main__':
     result = dummy(range_mod=2**27, modulo=7, range_sum=2**28)
     print(Fore.BLUE + "Algorithm result:", result)
+    print(Fore.WHITE)
