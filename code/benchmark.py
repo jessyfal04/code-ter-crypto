@@ -10,9 +10,15 @@ import gc
 
 STEP_SECOND = 0.5  # Sampling interval for CPU busy percentage in seconds
 
-PLOT = False    # Set to False to disable plotting
+
+PLOT = False    # Set to True to enable plotting
 BATTERY = False  # Set to True to enable battery monitoring
-COMBINED = False # Set to True to include battery data in the combined graph
+COMBINED = False # Set to True to enable the combined graph
+NETWORK = True  # Set to True to enable network monitoring
+
+network_bytes_sent = 0 # Global variable to store network bytes sent
+network_bytes_received = 0 # Global variable to store network bytes received
+
 
 def profile_and_monitor(func):
     """
@@ -51,6 +57,8 @@ def profile_and_monitor(func):
         busy_percentages = []      # CPU busy percentage (100 - idle)
         memory_usages = []         # Memory usage delta (current - mem_before)
         battery_percentages = [] if BATTERY else None
+        network_sent = [] if NETWORK else None
+        network_received = [] if NETWORK else None
 
         # Record initial process state
         process = psutil.Process()
@@ -79,6 +87,9 @@ def profile_and_monitor(func):
                     # Record current battery percentage (if sensor available)
                     current_battery = psutil.sensors_battery().percent
                     battery_percentages.append(current_battery)
+                if NETWORK:
+                    network_sent.append(network_bytes_sent)
+                    network_received.append(network_bytes_received)
         
         ### MONITORING 
 
@@ -94,6 +105,14 @@ def profile_and_monitor(func):
         monitor_thread.join()
 
         ### POST MONITORING
+        def format_bytes(num_bytes):
+            """
+            Convert a number of bytes into a human readable string.
+            """
+            for unit in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+                if num_bytes < 1024:
+                    return f"{num_bytes:.2f} {unit}"
+                num_bytes /= 1024
 
         # Execution Time
         end_time = time.perf_counter()
@@ -115,9 +134,9 @@ def profile_and_monitor(func):
         log_message(f"- Execution Time: {execution_time:.6f} seconds")
 
         log_message(f"## Additional Memory Usage")
-        log_message(f"- Average Memory Usage: {avg_memory_used / 1024:.2f} KB")
-        log_message(f"- Max Memory Usage: {max_memory_used / 1024:.2f} KB")
-        log_message(f"- Min Memory Usage: {min_memory_used / 1024:.2f} KB")
+        log_message(f"- Average Memory Usage: {format_bytes(avg_memory_used)}")
+        log_message(f"- Max Memory Usage: {format_bytes(max_memory_used)}")
+        log_message(f"- Min Memory Usage: {format_bytes(min_memory_used)}")
         
         log_message(f"## CPU Busy Percentage")
         log_message(f"- Average CPU Busy Percentage: {avg_cpu_busy:.2f}%")
@@ -132,6 +151,15 @@ def profile_and_monitor(func):
             log_message(f"- Average Battery Percentage: {avg_battery:.2f}%")
             log_message(f"- Max Battery Percentage: {max_battery:.2f}%")
             log_message(f"- Min Battery Percentage: {min_battery:.2f}%")
+
+        if NETWORK:
+            # After stopping the monitor thread in benchmark.py
+            log_message(f"## Network Metrics")
+            final_sent = network_sent[-1] if network_sent else 0
+            final_received = network_received[-1] if network_received else 0
+            log_message(f"- Total Bytes Sent: {format_bytes(final_sent)}")
+            log_message(f"- Total Bytes Received: {format_bytes(final_received)}")
+
 
         ### PLOT
 
@@ -175,18 +203,35 @@ def profile_and_monitor(func):
             plot_graph(monitor_times, [battery_percentages],
                        "Time (seconds)", ["Battery Percentage"],
                        "Battery Percentage Over Time", ['tab:green'], "graph_battery.png")
+            
+        if NETWORK:
+            plot_graph(monitor_times, [network_sent],
+                       "Time (seconds)", ["Network Bytes Sent"],
+                       "Network Bytes Over Time", ['tab:pink'], "graph_network_sent.png")
+            
+            plot_graph(monitor_times, [network_received],
+                       "Time (seconds)", ["Network Bytes Received"],
+                       "Network Bytes Over Time", ['tab:purple'], "graph_network_received.png")
         
-        # Plot Combined graph: include battery data if enabled and available.
-        if COMBINED and BATTERY and battery_percentages:
-            plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],
-                       "Time (seconds)",
-                       ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage"],
-                       "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green'], "graph_all.png")
-        elif COMBINED:
-            plot_graph(monitor_times, [busy_percentages, memory_usages],
-                       "Time (seconds)",
-                       ["CPU Busy Percentage", "Memory Usage (bytes)"],
-                       "System Stats Over Time", ['tab:red', 'tab:blue'], "graph_all.png")
+        # Plot Combined graph:
+        if COMBINED :
+            if BATTERY and battery_percentages:
+                plot_graph(monitor_times, [busy_percentages, memory_usages, battery_percentages],
+                        "Time (seconds)",
+                        ["CPU Busy Percentage", "Memory Usage (bytes)", "Battery Percentage", "Network Bytes Sent", "Network Bytes Received"],
+                        "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:green', 'tab:pink', 'tab:purple'], "graph_combined.png")
+            
+            else:
+                plot_graph(monitor_times, [busy_percentages, memory_usages],
+                        "Time (seconds)",
+                        ["CPU Busy Percentage", "Memory Usage (bytes), Network Bytes Sent, Network Bytes Received"],
+                        "System Stats Over Time", ['tab:red', 'tab:blue', 'tab:pink', 'tab:purple'], "graph_combined.png")
+            
+            if NETWORK:
+                plot_graph(monitor_times, [network_sent, network_received],
+                        "Time (seconds)", ["Network Bytes Sent", "Network Bytes Received"],
+                        "Network Bytes Over Time", ['tab:pink', 'tab:purple'], "graph_combined_network.png")
+        
         
         ### RESULT
 

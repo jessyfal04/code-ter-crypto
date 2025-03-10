@@ -1,16 +1,19 @@
 import socket
 import random
 import argparse
-from phe import paillier
-from benchmark import profile_and_monitor
 import json
+
+from phe import paillier
+
+import benchmark
+from benchmark import profile_and_monitor
 
 # Configuration
 MESSAGE_SIZE = 2**10
 MESSAGE_NB = 2**2
 KEY_LENGTH = 2**12
 
-PORT = 12341  # Port for communication
+PORT = 12342  # Port for communication
 BUFFER_SIZE = 2**31  # Buffer size for message transfer
 
 def generate_keypair():
@@ -27,10 +30,17 @@ def decrypt_messages(private_key, encrypted_messages):
     return [private_key.decrypt(m) for m in encrypted_messages]
 
 def send_data(sock, data):
-    sock.sendall(data.encode('utf-8'))
+    global network_bytes_sent
+    data_bytes = data.encode('utf-8')
+    benchmark.network_bytes_sent += len(data_bytes)
+    sock.sendall(data_bytes)
     
 def receive_data(sock):
-    return sock.recv(BUFFER_SIZE).decode('utf-8')
+    global network_bytes_received
+    data = sock.recv(BUFFER_SIZE)
+    decoded_data = data.decode('utf-8')
+    benchmark.network_bytes_received += len(decoded_data.encode('utf-8'))
+    return decoded_data
 
 def serialize_data(public_key, encrypted_number_list):
     print("> Serializing data")
