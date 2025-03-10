@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
 import gc
+from colorama import Fore
 #import pyRAPL.pyRAPL  # Not used for now
 
 STEP_SECOND = 0.5  # Sampling interval for CPU busy percentage in seconds
@@ -45,7 +46,7 @@ def profile_and_monitor(number=1):
         fig.tight_layout()
         file_path = os.path.join(folder, f"graph_{filename}")
         fig.savefig(file_path)
-        print(f"Saving graph {title} to: {file_path}")
+        print(Fore.GREEN + f"Saving graph {title} to: {file_path}")
         
         if PLOT_PRINT:
             plt.show()
@@ -56,7 +57,7 @@ def profile_and_monitor(number=1):
             f.write(message + "\n")
 
         if PLOT_PRINT:
-            print(message)
+            print(Fore.GREEN + message)
 
     # A utility function to convert bytes into human readable format.
     def format_bytes(num_bytes):
@@ -113,7 +114,7 @@ def profile_and_monitor(number=1):
                 run_folder = os.path.join(main_folder, f"run_{run+1}")
                 os.makedirs(run_folder, exist_ok=True)
                 log_file = os.path.join(run_folder, "print.md")
-                print(f"Saving run {run}/{number} to: {log_file}")
+                print(Fore.GREEN + f"Saving run {run+1}/{number} to: {log_file}")
                 
                 log_message(f"# Run {run+1}", log_file)
                 log_message(f"# Function and Args", log_file)
@@ -260,7 +261,7 @@ def profile_and_monitor(number=1):
             # If multiple runs were performed, compute and log aggregated results.
             if number > 1:
                 aggregated_log = os.path.join(main_folder, "aggregated.md")
-                print(f"Saving aggregated results to: {aggregated_log}")
+                print(Fore.GREEN + f"Saving aggregated results to: {aggregated_log}")
                 
                 log_message("# Aggregated Profiling Results", aggregated_log)
                 # Execution Time aggregation
@@ -299,7 +300,6 @@ def profile_and_monitor(number=1):
                     log_message(f"- Min Battery Percentage (min of mins): {agg_min_batt:.2f}%", aggregated_log)
                     log_message(f"- Max Battery Percentage (max of maxs): {agg_max_batt:.2f}%", aggregated_log)
                 
-                
                 agg_final_sent_avg = np.mean(all_final_sent)
                 agg_final_sent_min = min(all_final_sent)
                 agg_final_sent_max = max(all_final_sent)
@@ -314,33 +314,64 @@ def profile_and_monitor(number=1):
                 log_message(f"- Total Bytes Received (min): {format_bytes(agg_final_received_min)}", aggregated_log)
                 log_message(f"- Total Bytes Received (max): {format_bytes(agg_final_received_max)}", aggregated_log)
                 
-                # Compute and plot averaged time-series graphs.
+                # Compute and plot averaged time-series graphs on % time scale.
                 if aggregated_monitor_times:
-                    common_length = min(len(t) for t in aggregated_monitor_times)
-                    # Use the first run's times as the base (they should be similar)
-                    avg_times = aggregated_monitor_times[0][:common_length]
-                    avg_busy = np.mean([bp[:common_length] for bp in aggregated_busy_percentages], axis=0)
-                    avg_memory = np.mean([mu[:common_length] for mu in aggregated_memory_usages], axis=0)
-                    plot_graph(avg_times, [avg_busy],
-                           "Time (seconds)", ["Average CPU Busy Percentage"],
-                           "Average CPU Busy Percentage Over Time", ['tab:red'], "graph_avg_cpu.png", main_folder)
-                    plot_graph(avg_times, [avg_memory],
-                           "Time (seconds)", ["Average Memory Usage (bytes)"],
-                           "Average Memory Usage Over Time", ['tab:blue'], "graph_avg_ram.png", main_folder)
-                    if BATTERY and aggregated_battery_percentages:
-                        avg_battery = np.mean([b[:common_length] for b in aggregated_battery_percentages], axis=0)
-                        plot_graph(avg_times, [avg_battery],
-                           "Time (seconds)", ["Average Battery Percentage"],
-                           "Average Battery Percentage Over Time", ['tab:green'], "graph_avg_battery.png", main_folder)
+                    num_points = 100  # resolution for percentage scale
+                    x_perc = np.linspace(0, 100, num=num_points)
+                    busy_interp_all = []
+                    memory_interp_all = []
+                    network_sent_interp_all = []
+                    network_received_interp_all = []
                     
-                    avg_network_sent = np.mean([n[:common_length] for n in aggregated_network_sent], axis=0)
-                    avg_network_received = np.mean([n[:common_length] for n in aggregated_network_received], axis=0)
-                    plot_graph(avg_times, [avg_network_sent],
-                        "Time (seconds)", ["Average Network Bytes Sent"],
-                        "Average Network Bytes Sent Over Time", ['tab:pink'], "graph_avg_network_sent.png", main_folder)
-                    plot_graph(avg_times, [avg_network_received],
-                        "Time (seconds)", ["Average Network Bytes Received"],
-                        "Average Network Bytes Received Over Time", ['tab:purple'], "graph_avg_network_received.png", main_folder)
+                    # Interpolate each run's data onto the common percentage scale.
+                    for times, busy, memory, net_sent, net_received in zip(
+                        aggregated_monitor_times,
+                        aggregated_busy_percentages,
+                        aggregated_memory_usages,
+                        aggregated_network_sent,
+                        aggregated_network_received
+                    ):
+                        times = np.array(times)
+                        norm_time = (times / times[-1]) * 100  # normalize time to percentage
+                        busy_interp = np.interp(x_perc, norm_time, busy)
+                        memory_interp = np.interp(x_perc, norm_time, memory)
+                        net_sent_interp = np.interp(x_perc, norm_time, net_sent)
+                        net_received_interp = np.interp(x_perc, norm_time, net_received)
+                        busy_interp_all.append(busy_interp)
+                        memory_interp_all.append(memory_interp)
+                        network_sent_interp_all.append(net_sent_interp)
+                        network_received_interp_all.append(net_received_interp)
+                    
+                    avg_busy = np.mean(busy_interp_all, axis=0)
+                    avg_memory = np.mean(memory_interp_all, axis=0)
+                    avg_network_sent = np.mean(network_sent_interp_all, axis=0)
+                    avg_network_received = np.mean(network_received_interp_all, axis=0)
+                    
+                    plot_graph(x_perc, [avg_busy],
+                           "Time (%)", ["Average CPU Busy Percentage"],
+                           "Average CPU Busy Percentage Over % Time", ['tab:red'], "graph_avg_cpu.png", main_folder)
+                    plot_graph(x_perc, [avg_memory],
+                           "Time (%)", ["Average Memory Usage (bytes)"],
+                           "Average Memory Usage Over % Time", ['tab:blue'], "graph_avg_ram.png", main_folder)
+                    
+                    if BATTERY and aggregated_battery_percentages:
+                        battery_interp_all = []
+                        for times, batt in zip(aggregated_monitor_times, aggregated_battery_percentages):
+                            times = np.array(times)
+                            norm_time = (times / times[-1]) * 100
+                            batt_interp = np.interp(x_perc, norm_time, batt)
+                            battery_interp_all.append(batt_interp)
+                        avg_battery = np.mean(battery_interp_all, axis=0)
+                        plot_graph(x_perc, [avg_battery],
+                           "Time (%)", ["Average Battery Percentage"],
+                           "Average Battery Percentage Over % Time", ['tab:green'], "graph_avg_battery.png", main_folder)
+                    
+                    plot_graph(x_perc, [avg_network_sent],
+                        "Time (%)", ["Average Network Bytes Sent"],
+                        "Average Network Bytes Sent Over % Time", ['tab:pink'], "graph_avg_network_sent.png", main_folder)
+                    plot_graph(x_perc, [avg_network_received],
+                        "Time (%)", ["Average Network Bytes Received"],
+                        "Average Network Bytes Received Over % Time", ['tab:purple'], "graph_avg_network_received.png", main_folder)
             
             return last_result
         return wrapper
@@ -373,4 +404,4 @@ def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
 
 if __name__ == '__main__':
     result = dummy(range_mod=2**27, modulo=7, range_sum=2**28)
-    print("Algorithm result:", result)
+    print(Fore.BLUE + "Algorithm result:", result)
