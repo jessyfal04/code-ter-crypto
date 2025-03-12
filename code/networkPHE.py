@@ -62,7 +62,7 @@ def deserialize_data(serialized_data):
     ]
     return public_key_rec, enc_nums_rec
 
-@profile_and_monitor(number=2)
+@profile_and_monitor(number=3)
 def client(server_ip):
     # Generate messages and keys
     messages = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
@@ -114,7 +114,7 @@ def client(server_ip):
     
     sock.close()
 
-@profile_and_monitor(number=2)
+@profile_and_monitor(number=3)
 def server():
     # Create socket server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

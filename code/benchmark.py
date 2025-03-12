@@ -187,7 +187,7 @@ def profile_and_monitor(number=1):
             result = None
             
             for run in range(number):
-                global current_run
+                global current_run, current_network_bytes_sent, current_network_bytes_received
                 current_run = run
 
                 # Create a folder for each run and log the function and arguments.
@@ -215,6 +215,7 @@ def profile_and_monitor(number=1):
                 stop_monitoring = threading.Event()
                 
                 def monitor():
+                    global current_network_bytes_sent, current_network_bytes_received
                     monitor_time_start = time.perf_counter()
                     memory_before = psutil_process.memory_info().rss
                     current_network_bytes_sent = 0
