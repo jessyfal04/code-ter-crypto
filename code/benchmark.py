@@ -68,12 +68,15 @@ class MetricsAggregated:
       - graph_filename: The filename to save the aggregated graph.
       - graph_title: The title for the aggregated graph.
     """
-    def __init__(self, name, color, graph_filename="", graph_title=""):
+    def __init__(self, name:str, color:str, graph_filename:str="", graph_title:str=""):
         self.name = name
         self.color = color
         self.graph_filename = graph_filename
         self.graph_title = graph_title
-        self.runs = []  # List of MetricsRun objects
+        self.runs = []
+
+    def add_metric_run(self, run : MetricsRun):
+        self.runs.append(run)
     
     def aggregated_avg(self):
         return np.mean([run.get_avg() for run in self.runs])
@@ -127,7 +130,7 @@ def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (
     if PLOT_PRINT:
         plt.show()
 
-def plot_metric(metric, folder, isAggregated=False, num_points=100):
+def plot_metric(metric, folder : str, isAggregated:bool=False, num_points:int=20):
     """
     Merged plotting function for both run and aggregated metrics.
     When isAggregated is True, it uses metric.get_average_series and sets x_label to "Time (%)".
@@ -144,13 +147,13 @@ def plot_metric(metric, folder, isAggregated=False, num_points=100):
     filename = metric.graph_filename if metric.graph_filename else "graph.png"
     plot_graph(x_data, y_data, title, metric.name, filename, folder, x_label=x_label, color=metric.color)
 
-def log_message(message, log_file):
+def log_message(message : str, log_file : str):
     with open(log_file, "a") as f:
         f.write(message + "\n")
     if PLOT_PRINT:
         print(Fore.GREEN + message)
 
-def format_bytes(num_bytes):
+def format_bytes(num_bytes : int):
     """
     Format bytes to a human-readable string.
     Always stop at TB if the value is huge.
@@ -167,7 +170,7 @@ def format_bytes(num_bytes):
 
 # --- Decorator for Profiling and Monitoring ---
 
-def profile_and_monitor(number=1):
+def profile_and_monitor(number : int=1):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -176,11 +179,11 @@ def profile_and_monitor(number=1):
             os.makedirs(main_folder, exist_ok=True)
             
             # Create aggregated metric objects.
+            exec_time_agg = MetricsAggregated("Execution Time", 'tab:green', graph_filename="graph_avg_execution_time.png", graph_title="Execution Time Per Run")
             cpu_agg = MetricsAggregated("CPU Busy Percentage", 'tab:red', graph_filename="graph_avg_cpu.png", graph_title="Average CPU Busy Percentage Over % Time")
             memory_agg = MetricsAggregated("Memory Usage (bytes)", 'tab:blue', graph_filename="graph_avg_ram.png", graph_title="Average Memory Usage Over % Time")
             net_sent_agg = MetricsAggregated("Network Bytes Sent", 'tab:pink', graph_filename="graph_avg_network_sent.png", graph_title="Average Network Bytes Sent Over % Time")
             net_recv_agg = MetricsAggregated("Network Bytes Received", 'tab:purple', graph_filename="graph_avg_network_received.png", graph_title="Average Network Bytes Received Over % Time")
-            exec_time_agg = MetricsAggregated("Execution Time", 'tab:green', graph_filename="graph_avg_execution_time.png", graph_title="Execution Time Per Run")
             if BATTERY:
                 battery_agg = MetricsAggregated("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_avg_battery.png", graph_title="Average Battery Consumption Over % Time")
             
@@ -204,6 +207,7 @@ def profile_and_monitor(number=1):
                 print(Fore.WHITE)
 
                 # Initialize MetricsRun objects for this run.
+                exec_metric = MetricsRun("Execution Time", 'tab:green', graph_filename="graph_execution_time.png", graph_title="Execution Time Per Run")
                 cpu_metric = MetricsRun("CPU Busy Percentage", 'tab:red', graph_filename="graph_cpu.png", graph_title="CPU Busy Percentage Over Time")
                 memory_metric = MetricsRun("Memory Usage (bytes)", 'tab:blue', graph_filename="graph_ram.png", graph_title="Memory Usage Over Time")
                 network_sent_metric = MetricsRun("Network Bytes Sent", 'tab:pink', graph_filename="graph_network_sent.png", graph_title="Network Bytes Sent Over Time")
@@ -251,12 +255,7 @@ def profile_and_monitor(number=1):
 
                 # Compute execution time.
                 func_time_execution = func_time_end - func_time_start
-                
-                # Create and record the execution time metric.
-                exec_metric = MetricsRun("Execution Time", 'tab:green', graph_filename="graph_execution_time.png", graph_title="Execution Time Per Run")
-                # Record as a single measurement (using 1 as the x-value for plotting run index).
                 exec_metric.add_measurement(1, func_time_execution)
-                exec_time_agg.runs.append(exec_metric)
                 
                 # Log run results.
                 log_message("## Profiling Results", log_file)
@@ -293,12 +292,13 @@ def profile_and_monitor(number=1):
                 log_message(f"- Result: {result}", log_file)
                 
                 # Add each run's metrics to the aggregated objects.
-                cpu_agg.runs.append(cpu_metric)
-                memory_agg.runs.append(memory_metric)
-                net_sent_agg.runs.append(network_sent_metric)
-                net_recv_agg.runs.append(network_received_metric)
+                exec_time_agg.add_metric_run(exec_metric)
+                cpu_agg.add_metric_run(cpu_metric)
+                memory_agg.add_metric_run(memory_metric)
+                net_sent_agg.add_metric_run(network_sent_metric)
+                net_recv_agg.add_metric_run(network_received_metric)
                 if BATTERY:
-                    battery_agg.runs.append(battery_metric)
+                    battery_agg.add_metric_run(battery_metric)
                 
                 gc.collect()
             
