@@ -117,17 +117,23 @@ def deserialize_data(serialized_data):
     ]
     return public_key_rec, enc_nums_rec
 
-# Client / Server
-@profile_and_monitor(number=NB_RUNS, annotation=f"Client {MESSAGE_NB} messages")
-def client(server_ip, operation=None):
-    # Generate messages and keys
-    messages = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
-    scalar = random.getrandbits(1024)
-
+# --------------------------
+# New function: key generation and message preparation (not benchmarked)
+def prepare_client_data():
+    """
+    Prepares client data (key generation).
+    This function is kept separate so that its execution time is not included in the benchmark.
+    """
     public_key, private_key = generate_keypair()
+    return public_key, private_key
+
+# New function: performs the network communication and homomorphic operation (benchmark this part only)
+@profile_and_monitor(number=NB_RUNS, annotation=f"Client Operation for {MESSAGE_NB} messages")
+def client_operation(server_ip, operation, public_key, private_key):
+    scalar = random.getrandbits(1024)
+    messages = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
     encrypted_messages = encrypt_messages(public_key, messages)
-    
-    # Prepare the data payload
+
     print(f"> Computing {operation} with {MESSAGE_NB} messages")
     data_to_compute = {
         'operation': operation,
@@ -135,11 +141,8 @@ def client(server_ip, operation=None):
     }
     
     if operation in ['add', 'mul', 'div']:
-        # For operations that use a single encrypted message list
         data_to_compute['serialized_data'] = serialize_data(public_key, encrypted_messages)
     elif operation == 'add_encrypted':
-        # For element-wise addition of two encrypted message lists, send a second list.
-        # (For demonstration, we use the same list; in practice, they may be different.)
         data_to_compute['serialized_data'] = serialize_data(public_key, encrypted_messages)
         data_to_compute['serialized_data2'] = serialize_data(public_key, encrypted_messages)
     else:
@@ -147,7 +150,7 @@ def client(server_ip, operation=None):
     
     # Connect to server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((server_ip, PORT+benchmark.current_run))
+    sock.connect((server_ip, PORT + benchmark.current_run))
     
     print("> Sending DataToCompute to Server")
     send_data(sock, json.dumps(data_to_compute))
@@ -187,11 +190,18 @@ def client(server_ip, operation=None):
     
     sock.close()
 
+# Modified client function which calls the key generation outside the benchmarked function.
+def client(server_ip, operation=None):
+    # Prepare data (not benchmarked)
+    public_key, private_key = prepare_client_data()
+    # Benchmark only the network/homomorphic operations
+    client_operation(server_ip, operation, public_key, private_key)
+
 @profile_and_monitor(number=NB_RUNS, annotation=f"Server {MESSAGE_NB} messages")
 def server():
     # Create socket server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("0.0.0.0", PORT+benchmark.current_run))
+    sock.bind(("0.0.0.0", PORT + benchmark.current_run))
     sock.listen(1)
     print("> Waiting for client connection...")
     
@@ -246,7 +256,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", action='store_true', help="Run as server")
     parser.add_argument("--client", type=str, help="Run as client, specify server IP")
-    # operation 
     parser.add_argument("--operation", type=str, help="Operation to perform: 'add', 'add_encrypted', 'mul', 'div'")
     args = parser.parse_args()
 
