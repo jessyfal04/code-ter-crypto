@@ -82,10 +82,16 @@ class MetricsAggregated:
     def aggregated_avg(self):
         return np.mean([run.get_avg() for run in self.runs])
     
-    def aggregated_min(self):
+    def aggregated_min_of_avg(self):
+        return min([run.get_avg() for run in self.runs])
+    
+    def aggregated_max_of_avg(self):
+        return max([run.get_avg() for run in self.runs])
+    
+    def aggregated_min_of_min(self):
         return min([run.get_min() for run in self.runs])
     
-    def aggregated_max(self):
+    def aggregated_max_of_max(self):
         return max([run.get_max() for run in self.runs])
     
     def aggregated_avg_of_sum(self):
@@ -318,28 +324,38 @@ def profile_and_monitor(number : int=1, annotation : str=""):
                 # Log aggregated execution time metric.
                 log_message("### Execution Time", aggregated_log)
                 log_message(f"- Average: {exec_time_agg.aggregated_avg():.6f} seconds", aggregated_log)
-                log_message(f"- Min: {exec_time_agg.aggregated_min():.6f} seconds", aggregated_log)
-                log_message(f"- Max: {exec_time_agg.aggregated_max():.6f} seconds", aggregated_log)
+                log_message(f"- Min: {exec_time_agg.aggregated_min_of_min():.6f} seconds", aggregated_log)
+                log_message(f"- Max: {exec_time_agg.aggregated_max_of_max():.6f} seconds", aggregated_log)
                 
                 # Aggregate Memory and CPU using MetricsAggregated.
                 log_message("### Additional Memory Usage", aggregated_log)
                 log_message(f"- Average (avg of avgs): {format_bytes(memory_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Min (min of mins): {format_bytes(memory_agg.aggregated_min())}", aggregated_log)
-                log_message(f"- Max (max of maxs): {format_bytes(memory_agg.aggregated_max())}", aggregated_log)
+                log_message(f"- Min (min of avgs): {format_bytes(memory_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max (max of avgs): {format_bytes(memory_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message(f"- Absolute Min (min of mins): {format_bytes(memory_agg.aggregated_min_of_min())}", aggregated_log)
+                log_message(f"- Absolute Max (max of maxs): {format_bytes(memory_agg.aggregated_max_of_max())}", aggregated_log)
                 
                 log_message("### CPU Busy Percentage", aggregated_log)
                 log_message(f"- Average (avg of avgs): {cpu_agg.aggregated_avg():.2f}%", aggregated_log)
-                log_message(f"- Min (min of mins): {cpu_agg.aggregated_min():.2f}%", aggregated_log)
-                log_message(f"- Max (max of maxs): {cpu_agg.aggregated_max():.2f}%", aggregated_log)
+                log_message(f"- Min (min of avgs): {cpu_agg.aggregated_min_of_avg():.2f}%", aggregated_log)
+                log_message(f"- Max (max of avgs): {cpu_agg.aggregated_max_of_avg():.2f}%", aggregated_log)
+                log_message(f"- Absolute Min (min of mins): {cpu_agg.aggregated_min_of_min():.2f}%", aggregated_log)
+                log_message(f"- Absolute Max (max of maxs): {cpu_agg.aggregated_max_of_max():.2f}%", aggregated_log)
                 
                 # Aggregate Network metrics.
                 log_message("### Network Metrics", aggregated_log)
-                log_message(f"- Total Bytes Sent (avg): {format_bytes(net_sent_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Total Bytes Sent (min): {format_bytes(net_sent_agg.aggregated_min())}", aggregated_log)
-                log_message(f"- Total Bytes Sent (max): {format_bytes(net_sent_agg.aggregated_max())}", aggregated_log)
-                log_message(f"- Total Bytes Received (avg): {format_bytes(net_recv_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Total Bytes Received (min): {format_bytes(net_recv_agg.aggregated_min())}", aggregated_log)
-                log_message(f"- Total Bytes Received (max): {format_bytes(net_recv_agg.aggregated_max())}", aggregated_log)
+                log_message("#### Bytes Sent", aggregated_log)
+                log_message(f"- Average (avg of avgs): {format_bytes(net_sent_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min (min of avgs): {format_bytes(net_sent_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max (max of avgs): {format_bytes(net_sent_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message(f"- Absolute Min (min of mins): {format_bytes(net_sent_agg.aggregated_min_of_min())}", aggregated_log)
+                log_message(f"- Absolute Max (max of maxs): {format_bytes(net_sent_agg.aggregated_max_of_max())}", aggregated_log)
+                log_message("#### Bytes Received", aggregated_log)
+                log_message(f"- Average (avg of avgs): {format_bytes(net_recv_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min (min of avgs): {format_bytes(net_recv_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max (max of avgs): {format_bytes(net_recv_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message(f"- Absolute Min (min of mins): {format_bytes(net_recv_agg.aggregated_min_of_min())}", aggregated_log)
+                log_message(f"- Absolute Max (max of maxs): {format_bytes(net_recv_agg.aggregated_max_of_max())}", aggregated_log)
                 
                 if BATTERY:
                     log_message("### Battery Consumption", aggregated_log)
@@ -353,6 +369,8 @@ def profile_and_monitor(number : int=1, annotation : str=""):
                 #plot_metric(exec_time_agg, main_folder, isAggregated=True)
                 if BATTERY:
                     plot_metric(battery_agg, main_folder, isAggregated=True)
+                
+                print(Fore.WHITE)
             
             return result
         return wrapper
