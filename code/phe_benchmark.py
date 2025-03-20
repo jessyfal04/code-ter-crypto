@@ -3,6 +3,7 @@ import random
 import argparse
 import json
 import math
+import struct
 
 from phe import paillier
 import benchmark
@@ -31,9 +32,9 @@ def divide_encrypted_by_scalar(enc: paillier.EncryptedNumber, scalar: int) -> pa
 #                 Utility Functions
 # -----------------------------------------------------------
 # Networking
-INITIAL_PORT = 12310  # Port for communication
-COUNT_PORT = 0 # Counter for port allocation (incremented for each new connection)
-BUFFER_SIZE = 2**31  # Buffer size for message transfer
+INITIAL_PORT = 12350  # Port for communication
+COUNT_PORT = 0  # Counter for port allocation
+BUFFER_SIZE = 4096  # Reduced buffer size for safer memory usage
 
 def get_port():
     global COUNT_PORT
@@ -43,14 +44,40 @@ def get_port():
 
 def send_data(sock, data):
     data_bytes = data.encode('utf-8')
-    benchmark.current_network_bytes_sent += len(data_bytes)
-    sock.sendall(data_bytes)
+    data_length = len(data_bytes)
     
+    # Send the length of the data first
+    sock.sendall(struct.pack('!I', data_length))
+    
+    # Send the actual data in chunks
+    sent_bytes = 0
+    while sent_bytes < data_length:
+        chunk = data_bytes[sent_bytes:sent_bytes + BUFFER_SIZE]
+        sock.sendall(chunk)
+        sent_bytes += len(chunk)
+    
+    benchmark.current_network_bytes_sent += data_length
+
 def receive_data(sock):
-    data = sock.recv(BUFFER_SIZE)
-    decoded_data = data.decode('utf-8')
-    benchmark.current_network_bytes_received += len(decoded_data.encode('utf-8'))
-    return decoded_data
+    # Receive the length of the data first
+    raw_length = sock.recv(4)
+    if not raw_length:
+        return None
+    data_length = struct.unpack('!I', raw_length)[0]
+    
+    # Receive the actual data in chunks
+    received_bytes = 0
+    data_chunks = []
+    while received_bytes < data_length:
+        chunk = sock.recv(min(BUFFER_SIZE, data_length - received_bytes))
+        if not chunk:
+            break
+        data_chunks.append(chunk)
+        received_bytes += len(chunk)
+    
+    data = b''.join(data_chunks).decode('utf-8')
+    benchmark.current_network_bytes_received += received_bytes
+    return data
 
 # Paillier
 def generate_keypair(key_length):
@@ -90,7 +117,7 @@ def deserialize_data(serialized_data):
 # -----------------------------------------------------------
 #         Client and Server Logic 
 # -----------------------------------------------------------
-# Non-benchmarked function to prepare keys (Client side)
+
 def prepare_client_data(key_length):
     """
     Prepares client data (key generation) outside of the benchmarked section.
@@ -99,11 +126,8 @@ def prepare_client_data(key_length):
     return public_key, private_key
 
 # --------------------------
-# Actual client operations we want to benchmark
+# Actual client operations
 def run_client_operations(server_ip, operation, public_key, private_key, config):
-    """
-    This function is the 'core' that we'll benchmark using profile_and_monitor.
-    """
     nb_messages = config['msg_nb']
     msg_size = config['msg_size']
 
@@ -136,13 +160,11 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     serialized_data = receive_data(sock)
     sock.close()
     
-    # Deserialize the result (the result is a single encrypted message list)
+    # Deserialize the result
     _, encrypted_result = deserialize_data(serialized_data)
-
-    # Decrypt the result with the private key
     decrypted_result = decrypt_messages(private_key, encrypted_result)
 
-    # Compute expected results locally
+    # Check correctness
     if operation == "add":
         expected_result = [msg + scalar for msg in messages]
     elif operation == "add_encrypted":
@@ -155,27 +177,28 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     else:
         raise ValueError(f"Operation {operation} not supported for expected result computation!")
     
-    # Compare the decrypted results with the expected results
     ok = True
-    for i, (decrypted, expected) in enumerate(zip(decrypted_result, expected_result)):
-        if decrypted != expected if isinstance(expected, int) else not math.isclose(decrypted, expected, rel_tol=1e-5):
-            print(f"{i} Decrypted value does not match expected value")
-            print(f"Decrypted: {decrypted}")
-            print(f"Expected: {expected}")
-            print(f"Int : {isinstance(expected, int)}")
-            ok = False
+    for i, (dec, exp) in enumerate(zip(decrypted_result, expected_result)):
+        # If it's int vs float, handle carefully:
+        if isinstance(exp, int):
+            if dec != exp:
+                print(f"{i} Decrypted value {dec} != expected {exp}")
+                ok = False
+        else:
+            if not math.isclose(dec, exp, rel_tol=1e-5):
+                print(f"{i} Decrypted value {dec} not close to expected {exp}")
+                ok = False
+
     if ok:
         print("All decrypted values match expected values")
 
-def client(server_ip, config):
+def client(server_ip, config, public_key, private_key):
     """
-    Main client entry point. 
+    Main client entry point.
     1) Generate keys (un-benchmarked).
-    2) Wrap the actual network/homomorphic ops with profile_and_monitor.
+    2) Wrap the actual network/homomorphic ops in profile_and_monitor.
     """
-    public_key, private_key = prepare_client_data(config['key_length'])
 
-    # Build one annotation string with all relevant parameters
     annotation_str = (
         f"Client Operation | "
         f"NB_RUNS={config['nb_runs']}, "
@@ -185,23 +208,17 @@ def client(server_ip, config):
         f"OPERATION={config['operation']}"
     )
 
-    # We dynamically apply the decorator by calling profile_and_monitor(...) inside:
     benchmarked_fn = profile_and_monitor(
         number=config['nb_runs'],
         annotation=annotation_str
     )(run_client_operations)
 
-    # Now run it
     benchmarked_fn(server_ip, config['operation'], public_key, private_key, config)
 
 
 # --------------------------
-# Actual server operations we want to benchmark
+# Actual server operations
 def run_server_operations(config):
-    """
-    This function is the 'core' server logic that we'll benchmark using profile_and_monitor.
-    """
-    # Create socket server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("0.0.0.0", get_port()))
     sock.listen(1)
@@ -214,7 +231,7 @@ def run_server_operations(config):
     data_to_compute = json.loads(data_to_compute)
     operation = data_to_compute['operation']
     
-    # Deserialize encrypted messages
+    # Deserialize
     if operation in ['add', 'mul', 'div']:
         serialized_data = data_to_compute['serialized_data']
         public_key, encrypted_messages = deserialize_data(serialized_data)
@@ -222,22 +239,22 @@ def run_server_operations(config):
         serialized_data = data_to_compute['serialized_data']
         serialized_data2 = data_to_compute.get('serialized_data2')
         if not serialized_data2:
-            raise ValueError("Operation 'add_encrypted' requires a second serialized data ('serialized_data2').")
+            raise ValueError("Operation 'add_encrypted' requires a second data set.")
         public_key, encrypted_messages = deserialize_data(serialized_data)
         _, encrypted_messages2 = deserialize_data(serialized_data2)
         if len(encrypted_messages) != len(encrypted_messages2):
-            raise ValueError("Both encrypted message lists must be of same length for 'add_encrypted'.")
+            raise ValueError("Both encrypted message lists must have same length.")
     else:
         raise ValueError(f"Operation {operation} not supported!")
     
     scalar = data_to_compute['scalar']
     
-    # Perform the requested homomorphic operation
     print("> Performing Homomorphic Operations")
     if operation == 'add':
         encrypted_result = [add_encrypted_scalar(msg, scalar) for msg in encrypted_messages]
     elif operation == 'add_encrypted':
-        encrypted_result = [add_encrypted_numbers(msg1, msg2) for msg1, msg2 in zip(encrypted_messages, encrypted_messages2)]
+        encrypted_result = [add_encrypted_numbers(msg1, msg2)
+                            for msg1, msg2 in zip(encrypted_messages, encrypted_messages2)]
     elif operation == 'mul':
         encrypted_result = [multiply_encrypted_by_scalar(msg, scalar) for msg in encrypted_messages]
     elif operation == 'div':
@@ -245,7 +262,6 @@ def run_server_operations(config):
     else:
         raise ValueError(f"Operation {operation} not supported!")
     
-    # Serialize the result and send it back
     serialized_data = serialize_data(public_key, encrypted_result)
     print("> Sending result back to client")
     send_data(conn, serialized_data)
@@ -254,10 +270,6 @@ def run_server_operations(config):
     sock.close()
 
 def server(config):
-    """
-    Main server entry point.
-    We'll wrap the actual server logic with profile_and_monitor for benchmarking.
-    """
     annotation_str = (
         f"Server Operation | "
         f"NB_RUNS={config['nb_runs']}, "
@@ -272,9 +284,7 @@ def server(config):
         annotation=annotation_str
     )(run_server_operations)
 
-    # Run it
     benchmarked_fn(config)
-
 
 # --------------------------
 # Main entry
@@ -283,25 +293,44 @@ if __name__ == '__main__':
     parser.add_argument("--server", action='store_true', help="Run as server")
     parser.add_argument("--client", type=str, help="Run as client, specify server IP")
     parser.add_argument("--operation", type=str, default="add",
-                        help="Operation to perform: 'add', 'add_encrypted', 'mul', 'div'")
+                        help="Operation: 'add', 'add_encrypted', 'mul', 'div', or 'all'. Can be a comma-separated list")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
-    parser.add_argument("--msg_size", type=int, default=2**10, help="Message size in bits")
-    parser.add_argument("--msg_nb", type=int, default=2**2, help="Number of messages")
-    parser.add_argument("--key_length", type=int, default=2**12, help="Key length in bits")
+    parser.add_argument("--msg_size", type=str, default="1024",
+                        help="Message size in bits. Can be a single integer of bits or comma-separated list of exponent of 2 min max, e.g. '2,4,6,8,10'")
+    parser.add_argument("--msg_nb", type=int, default=4, help="Number of messages")
+    parser.add_argument("--key_length", type=int, default=4096, help="Key length in bits")
     args = parser.parse_args()
 
-    config = {
-        'nb_runs': args.nb_runs,
-        'msg_size': args.msg_size,
-        'msg_nb': args.msg_nb,
-        'key_length': args.key_length,
-        'operation': args.operation,
-    }
-
-    if args.server:
-        server(config)
-    elif args.client:
-        client(args.client, config)
+    # Decide which operations to run
+    if args.operation == 'all':
+        operations = ['add', 'add_encrypted', 'mul', 'div']
+    elif ',' in args.operation:
+        operations = [x.strip() for x in args.operation.split(',')]
     else:
-        print("Please specify either --server or --client <server_ip>, you can also --help")
-        exit(1)
+        operations = [args.operation]
+
+    # Decide which message sizes to run
+    if ',' in args.msg_size:
+        msg_size_list = [2 ** int(x.strip()) for x in args.msg_size.split(',')]
+    else:
+        msg_size_list = [int(args.msg_size)]
+
+    # We will run each combination of operation and msg_size
+    for ms in msg_size_list:
+        for op in operations:
+            config = {
+                'nb_runs': args.nb_runs,
+                'msg_size': ms,
+                'msg_nb': args.msg_nb,
+                'key_length': args.key_length,
+                'operation': op,
+            }
+
+            if args.server:
+                server(config)
+            elif args.client:
+                public_key, private_key = prepare_client_data(config['key_length'])
+                client(args.client, config, public_key, private_key)
+            else:
+                print("Please specify either --server or --client <server_ip>; see --help.")
+                exit(1)
