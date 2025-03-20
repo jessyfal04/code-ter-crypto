@@ -37,4 +37,14 @@ rm vm/vm1/code -r; rm vm/vm2/code -r; cp code vm/vm1/code -r; cp code vm/vm2/cod
 ## On vm
 source .env/bin/activate
 python3 code/networkPHE.py --server
-python3 code/networkPHE.py --client vm1
+python3 code/networkPHE.py --client vm1 --operation add
+
+benchmark_config="--operation all --nb_runs 5 --msg_size 1024 --msg_nb 16"
+benchmark_config="--operation add_encrypted --nb_runs 5 --msg_size 4,6,8,10 --msg_nb 16"
+
+
+
+python code/phe_benchmark.py --client vm1 $benchmark_config
+python code/phe_benchmark.py --server $benchmark_config
+
+rm results_profile/* -rf

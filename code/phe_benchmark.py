@@ -32,7 +32,7 @@ def divide_encrypted_by_scalar(enc: paillier.EncryptedNumber, scalar: int) -> pa
 #                 Utility Functions
 # -----------------------------------------------------------
 # Networking
-INITIAL_PORT = 12350  # Port for communication
+INITIAL_PORT = 12500  # Port for communication
 COUNT_PORT = 0  # Counter for port allocation
 BUFFER_SIZE = 4096  # Reduced buffer size for safer memory usage
 
@@ -198,6 +198,7 @@ def client(server_ip, config, public_key, private_key):
     1) Generate keys (un-benchmarked).
     2) Wrap the actual network/homomorphic ops in profile_and_monitor.
     """
+    folder_prexix = f"client_{config['operation']}_{config['msg_size']}bits"
 
     annotation_str = (
         f"Client Operation | "
@@ -210,6 +211,7 @@ def client(server_ip, config, public_key, private_key):
 
     benchmarked_fn = profile_and_monitor(
         number=config['nb_runs'],
+        folder_prefix=folder_prexix,
         annotation=annotation_str
     )(run_client_operations)
 
@@ -270,6 +272,7 @@ def run_server_operations(config):
     sock.close()
 
 def server(config):
+    folder_prexix = f"server_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
         f"Server Operation | "
         f"NB_RUNS={config['nb_runs']}, "
@@ -281,6 +284,7 @@ def server(config):
 
     benchmarked_fn = profile_and_monitor(
         number=config['nb_runs'],
+        folder_prefix=folder_prexix,
         annotation=annotation_str
     )(run_server_operations)
 
@@ -315,6 +319,11 @@ if __name__ == '__main__':
     else:
         msg_size_list = [int(args.msg_size)]
 
+    # If client, prepare the client data
+    public_key, private_key = None, None
+    if args.client:
+        public_key, private_key = prepare_client_data(args.key_length)
+
     # We will run each combination of operation and msg_size
     for ms in msg_size_list:
         for op in operations:
@@ -329,7 +338,6 @@ if __name__ == '__main__':
             if args.server:
                 server(config)
             elif args.client:
-                public_key, private_key = prepare_client_data(config['key_length'])
                 client(args.client, config, public_key, private_key)
             else:
                 print("Please specify either --server or --client <server_ip>; see --help.")

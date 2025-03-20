@@ -177,12 +177,12 @@ def format_bytes(num_bytes : int):
 
 # --- Decorator for Profiling and Monitoring ---
 
-def profile_and_monitor(number : int=1, annotation : str=""):
+def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str=""):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            main_folder = f"results_profile/{func.__name__}_{timestamp}"
+            main_folder = f"results_profile/{folder_prefix}_{func.__name__}_{timestamp}"
             os.makedirs(main_folder, exist_ok=True)
             
             # Create aggregated metric objects.
