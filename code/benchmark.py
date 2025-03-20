@@ -202,8 +202,8 @@ def profile_and_monitor(number : int=1, annotation : str=""):
                 log_message(f"# Run {run+1}", log_file)
                 log_message("## Function and Args", log_file)
                 log_message(f"- Function: {func.__name__}", log_file)
-                log_message(f"- Arguments: {args}", log_file)
-                log_message(f"- Keyword Arguments: {kwargs}", log_file)
+                #log_message(f"- Arguments: {args}", log_file)
+                #log_message(f"- Keyword Arguments: {kwargs}", log_file)
                 log_message(f"- Annotation: {annotation}", log_file)
                 print(Fore.WHITE)
 
@@ -310,8 +310,8 @@ def profile_and_monitor(number : int=1, annotation : str=""):
                 log_message("# Aggregated Profiling Results", aggregated_log)
                 log_message("## Function and Args", aggregated_log)
                 log_message(f"- Function: {func.__name__}", aggregated_log)
-                log_message(f"- Arguments: {args}", aggregated_log)
-                log_message(f"- Keyword Arguments: {kwargs}", aggregated_log)
+                #log_message(f"- Arguments: {args}", aggregated_log)
+                #log_message(f"- Keyword Arguments: {kwargs}", aggregated_log)
                 log_message(f"- Annotation: {annotation}", aggregated_log)
                 
                 # Log aggregated execution time metric.
