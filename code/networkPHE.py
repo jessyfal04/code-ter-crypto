@@ -62,7 +62,7 @@ def divide_encrypted_by_scalar(
 # --- End of Homomorphic Operation Functions ---
 
 # Configuration
-NB_RUNS = 1
+NB_RUNS = 2
 
 MESSAGE_SIZE = 2**10
 MESSAGE_NB = 2**2
@@ -118,7 +118,7 @@ def deserialize_data(serialized_data):
     return public_key_rec, enc_nums_rec
 
 # Client / Server
-@profile_and_monitor(number=NB_RUNS)
+@profile_and_monitor(number=NB_RUNS, annotation=f"Client {MESSAGE_NB} messages")
 def client(server_ip, operation=None):
     # Generate messages and keys
     messages = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
@@ -187,7 +187,7 @@ def client(server_ip, operation=None):
     
     sock.close()
 
-@profile_and_monitor(number=NB_RUNS)
+@profile_and_monitor(number=NB_RUNS, annotation=f"Server {MESSAGE_NB} messages")
 def server():
     # Create socket server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

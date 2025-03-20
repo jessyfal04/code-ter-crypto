@@ -170,7 +170,7 @@ def format_bytes(num_bytes : int):
 
 # --- Decorator for Profiling and Monitoring ---
 
-def profile_and_monitor(number : int=1):
+def profile_and_monitor(number : int=1, annotation : str=""):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -204,6 +204,7 @@ def profile_and_monitor(number : int=1):
                 log_message(f"- Function: {func.__name__}", log_file)
                 log_message(f"- Arguments: {args}", log_file)
                 log_message(f"- Keyword Arguments: {kwargs}", log_file)
+                log_message(f"- Annotation: {annotation}", log_file)
                 print(Fore.WHITE)
 
                 # Initialize MetricsRun objects for this run.
@@ -311,6 +312,7 @@ def profile_and_monitor(number : int=1):
                 log_message(f"- Function: {func.__name__}", aggregated_log)
                 log_message(f"- Arguments: {args}", aggregated_log)
                 log_message(f"- Keyword Arguments: {kwargs}", aggregated_log)
+                log_message(f"- Annotation: {annotation}", aggregated_log)
                 
                 # Log aggregated execution time metric.
                 log_message("### Execution Time", aggregated_log)
