@@ -2,6 +2,7 @@ import socket
 import random
 import argparse
 import json
+import math
 
 from phe import paillier
 import benchmark
@@ -30,7 +31,7 @@ def divide_encrypted_by_scalar(enc: paillier.EncryptedNumber, scalar: int) -> pa
 #                 Utility Functions
 # -----------------------------------------------------------
 # Networking
-INITIAL_PORT = 12360  # Port for communication
+INITIAL_PORT = 12310  # Port for communication
 COUNT_PORT = 0 # Counter for port allocation (incremented for each new connection)
 BUFFER_SIZE = 2**31  # Buffer size for message transfer
 
@@ -157,10 +158,11 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     # Compare the decrypted results with the expected results
     ok = True
     for i, (decrypted, expected) in enumerate(zip(decrypted_result, expected_result)):
-        if decrypted != expected:
+        if decrypted != expected if isinstance(expected, int) else not math.isclose(decrypted, expected, rel_tol=1e-5):
             print(f"{i} Decrypted value does not match expected value")
             print(f"Decrypted: {decrypted}")
             print(f"Expected: {expected}")
+            print(f"Int : {isinstance(expected, int)}")
             ok = False
     if ok:
         print("All decrypted values match expected values")

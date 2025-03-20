@@ -11,6 +11,7 @@ from colorama import Fore
 import pyRAPL.pyRAPL
 
 STEP_SECOND = 0.5  # Sampling interval in seconds
+NUM_POINTS = 20    # Number of points for interpolation
 PLOT_PRINT = False  # Set to True to show plots
 BATTERY = False     # Set to True to enable battery monitoring
 if BATTERY:
@@ -90,14 +91,14 @@ class MetricsAggregated:
     def aggregated_avg_of_sum(self):
         return np.mean([run.get_sum() for run in self.runs])
     
-    def get_average_series(self, num_points=100):
+    def get_average_series(self):
         # If each run has exactly one measurement, use the run index for x-axis.
         if all(len(run.times) == 1 for run in self.runs if run.times):
             x_data = np.arange(1, len(self.runs) + 1)
             y_data = np.array([run.values[0] for run in self.runs])
             return x_data, y_data
         # Otherwise, interpolate each run's data onto a common percentage scale.
-        x_perc = np.linspace(0, 100, num=num_points)
+        x_perc = np.linspace(0, 100, num=NUM_POINTS)
         series_list = []
         for run in self.runs:
             if run.times and run.times[-1] > 0:
@@ -130,7 +131,7 @@ def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (
     if PLOT_PRINT:
         plt.show()
 
-def plot_metric(metric, folder : str, isAggregated:bool=False, num_points:int=20):
+def plot_metric(metric, folder : str, isAggregated:bool=False):
     """
     Merged plotting function for both run and aggregated metrics.
     When isAggregated is True, it uses metric.get_average_series and sets x_label to "Time (%)".
@@ -138,7 +139,7 @@ def plot_metric(metric, folder : str, isAggregated:bool=False, num_points:int=20
     It also uses the graph_title and graph_filename from the metric instance.
     """
     if isAggregated:
-        x_data, y_data = metric.get_average_series(num_points)
+        x_data, y_data = metric.get_average_series()
         x_label = "Time (%)"
     else:
         x_data, y_data = metric.times, metric.values
@@ -345,13 +346,13 @@ def profile_and_monitor(number : int=1, annotation : str=""):
                     log_message(f"- Average Battery Consumption: {battery_agg.aggregated_avg_of_sum():.6f} Joules", aggregated_log)
                 
                 # Plot aggregated time series graphs using the merged plot_metric function.
-                plot_metric(cpu_agg, main_folder, isAggregated=True, num_points=100)
-                plot_metric(memory_agg, main_folder, isAggregated=True, num_points=100)
-                plot_metric(net_sent_agg, main_folder, isAggregated=True, num_points=100)
-                plot_metric(net_recv_agg, main_folder, isAggregated=True, num_points=100)
-                #plot_metric(exec_time_agg, main_folder, isAggregated=True, num_points=100)
+                plot_metric(cpu_agg, main_folder, isAggregated=True)
+                plot_metric(memory_agg, main_folder, isAggregated=True)
+                plot_metric(net_sent_agg, main_folder, isAggregated=True)
+                plot_metric(net_recv_agg, main_folder, isAggregated=True)
+                #plot_metric(exec_time_agg, main_folder, isAggregated=True)
                 if BATTERY:
-                    plot_metric(battery_agg, main_folder, isAggregated=True, num_points=100)
+                    plot_metric(battery_agg, main_folder, isAggregated=True)
             
             return result
         return wrapper
