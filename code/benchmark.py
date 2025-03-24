@@ -19,6 +19,7 @@ if BATTERY:
 
 current_network_bytes_sent = 0     # Global variable for network bytes sent
 current_network_bytes_received = 0   # Global variable for network bytes received
+current_network_latency = 0         # Global variable for network latency
 current_run = 0
 
 # --- Metrics Classes ---
@@ -191,13 +192,14 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
             memory_agg = MetricsAggregated("Memory Usage (bytes)", 'tab:blue', graph_filename="graph_avg_ram.png", graph_title="Average Memory Usage Over % Time")
             net_sent_agg = MetricsAggregated("Network Bytes Sent", 'tab:pink', graph_filename="graph_avg_network_sent.png", graph_title="Average Network Bytes Sent Over % Time")
             net_recv_agg = MetricsAggregated("Network Bytes Received", 'tab:purple', graph_filename="graph_avg_network_received.png", graph_title="Average Network Bytes Received Over % Time")
+            net_latency_agg = MetricsAggregated("Network Latency (ms)", 'tab:cyan', graph_filename="graph_avg_network_latency.png", graph_title="Average Network Latency Over % Time")
             if BATTERY:
                 battery_agg = MetricsAggregated("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_avg_battery.png", graph_title="Average Battery Consumption Over % Time")
             
             result = None
             
             for run in range(number):
-                global current_run, current_network_bytes_sent, current_network_bytes_received
+                global current_run, current_network_bytes_sent, current_network_bytes_received, current_network_latency
                 current_run = run
 
                 # Create a folder for each run and log the function and arguments.
@@ -220,6 +222,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 memory_metric = MetricsRun("Memory Usage (bytes)", 'tab:blue', graph_filename="graph_ram.png", graph_title="Memory Usage Over Time")
                 network_sent_metric = MetricsRun("Network Bytes Sent", 'tab:pink', graph_filename="graph_network_sent.png", graph_title="Network Bytes Sent Over Time")
                 network_received_metric = MetricsRun("Network Bytes Received", 'tab:purple', graph_filename="graph_network_received.png", graph_title="Network Bytes Received Over Time")
+                network_latency_metric = MetricsRun("Network Latency (ms)", 'tab:cyan', graph_filename="graph_network_latency.png", graph_title="Network Latency Over Time")
                 if BATTERY:
                     battery_metric = MetricsRun("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_battery.png", graph_title="Battery Consumption Over Time")
                 
@@ -227,11 +230,12 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 stop_monitoring = threading.Event()
                 
                 def monitor():
-                    global current_network_bytes_sent, current_network_bytes_received
+                    global current_network_bytes_sent, current_network_bytes_received, current_network_latency
                     monitor_time_start = time.perf_counter()
                     memory_before = psutil_process.memory_info().rss
                     current_network_bytes_sent = 0
                     current_network_bytes_received = 0
+                    current_network_latency = 0
 
                     while not stop_monitoring.is_set():
                         monitor_time_current = time.perf_counter() - monitor_time_start
@@ -249,7 +253,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                         cpu_metric.add_measurement(monitor_time_current, 100 - cpu_times.idle)
                         memory_metric.add_measurement(monitor_time_current, psutil_process.memory_info().rss - memory_before)
                         network_sent_metric.add_measurement(monitor_time_current, current_network_bytes_sent)
-                        network_received_metric.add_measurement(monitor_time_current, current_network_bytes_received)                            
+                        network_received_metric.add_measurement(monitor_time_current, current_network_bytes_received)
+                        network_latency_metric.add_measurement(monitor_time_current, current_network_latency)                         
                 
                 monitor_thread = threading.Thread(target=monitor, daemon=True)
                 monitor_thread.start()
@@ -283,6 +288,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message("### Network Metrics", log_file)
                 log_message(f"- Total Bytes Sent: {format_bytes(current_network_bytes_sent)}", log_file)
                 log_message(f"- Total Bytes Received: {format_bytes(current_network_bytes_received)}", log_file)
+                log_message(f"- Total Network Latency: {current_network_latency:.6f} ms", log_file)
                 
                 if BATTERY:
                     log_message("### Battery Consumption", log_file)
@@ -305,6 +311,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 memory_agg.add_metric_run(memory_metric)
                 net_sent_agg.add_metric_run(network_sent_metric)
                 net_recv_agg.add_metric_run(network_received_metric)
+                net_latency_agg.add_metric_run(network_latency_metric)
                 if BATTERY:
                     battery_agg.add_metric_run(battery_metric)
                 
@@ -356,6 +363,10 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"- Max (max of avgs): {format_bytes(net_recv_agg.aggregated_max_of_avg())}", aggregated_log)
                 log_message(f"- Absolute Min (min of mins): {format_bytes(net_recv_agg.aggregated_min_of_min())}", aggregated_log)
                 log_message(f"- Absolute Max (max of maxs): {format_bytes(net_recv_agg.aggregated_max_of_max())}", aggregated_log)
+                log_message("#### Latency", aggregated_log)
+                log_message(f"- Average (avg of avgs): {net_latency_agg.aggregated_avg():.6f} ms", aggregated_log)
+                log_message(f"- Min (min of avgs): {net_latency_agg.aggregated_min_of_avg():.6f} ms", aggregated_log)
+                log_message(f"- Max (max of avgs): {net_latency_agg.aggregated_max_of_avg():.6f} ms", aggregated_log)
                 
                 if BATTERY:
                     log_message("### Battery Consumption", aggregated_log)
@@ -367,6 +378,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 plot_metric(net_sent_agg, main_folder, isAggregated=True)
                 plot_metric(net_recv_agg, main_folder, isAggregated=True)
                 #plot_metric(exec_time_agg, main_folder, isAggregated=True)
+                #plot_metric(net_latency_agg, main_folder, isAggregated=True)
                 if BATTERY:
                     plot_metric(battery_agg, main_folder, isAggregated=True)
                 

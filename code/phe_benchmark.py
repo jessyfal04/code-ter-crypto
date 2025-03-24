@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import struct
+import time
 from colorama import Fore
 
 from phe import paillier
@@ -128,7 +129,25 @@ def prepare_client_data(key_length):
 
 # --------------------------
 # Actual client operations
+def measure_latency_client(server_ip):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((server_ip, get_port()))
+        start_time = time.time()
+        send_data(sock, "ping")
+        
+        if receive_data(sock) != "pingpong":
+            print("Unexpected latency response received.")
+            return
+        latency_ms = (time.time() - start_time) * 1000
+        send_data(sock, "pong")
+
+        print(f"Latency to {server_ip}: {latency_ms:.2f} ms")
+        benchmark.current_network_latency = latency_ms
+
 def run_client_operations(server_ip, operation, public_key, private_key, config):
+    # Measure latency
+    measure_latency_client(server_ip)
+
     nb_messages = config['msg_nb']
     msg_size = config['msg_size']
 
@@ -221,7 +240,29 @@ def client(server_ip, config, public_key, private_key):
 
 # --------------------------
 # Actual server operations
+def measure_latency_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", get_port()))
+        sock.listen(1)
+        conn, _ = sock.accept()
+        with conn:
+            if receive_data(conn) != "ping":
+                print("Unexpected latency request received.")
+                return
+
+            start_time = time.time()
+            send_data(conn, "pingpong")
+            if receive_data(conn) == "pong":
+                latency_ms = (time.time() - start_time) * 1000
+                print(f"Latency to client: {latency_ms:.2f} ms")
+                benchmark.current_network_latency = latency_ms
+            else:
+                print("Unexpected latency request received.")
+               
 def run_server_operations(config):
+    # Mesure server latency
+    measure_latency_server()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("0.0.0.0", get_port()))
     sock.listen(1)
@@ -324,6 +365,7 @@ if __name__ == '__main__':
     public_key, private_key = None, None
     if args.client:
         public_key, private_key = prepare_client_data(args.key_length)
+        input("Press Enter to start the benchmark...")
 
     # We will run each combination of operation and msg_size
     for ms in msg_size_list:
