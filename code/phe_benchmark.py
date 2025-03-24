@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import struct
+from colorama import Fore
 
 from phe import paillier
 import benchmark
@@ -334,6 +335,16 @@ if __name__ == '__main__':
                 'key_length': args.key_length,
                 'operation': op,
             }
+
+            # Print configuration
+            print(Fore.YELLOW)
+            print("Configuration:")
+            print(f"  Operation: {op}")
+            print(f"  Message Size: {ms} bits")
+            print(f"  Number of Messages: {args.msg_nb}")
+            print(f"  Key Length: {args.key_length} bits")
+            print(f"  Number of Runs: {args.nb_runs}")
+            print(Fore.RESET)
 
             if args.server:
                 server(config)

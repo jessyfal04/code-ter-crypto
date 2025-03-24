@@ -212,7 +212,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 #log_message(f"- Arguments: {args}", log_file)
                 #log_message(f"- Keyword Arguments: {kwargs}", log_file)
                 log_message(f"- Annotation: {annotation}", log_file)
-                print(Fore.WHITE)
+                print(Fore.RESET)
 
                 # Initialize MetricsRun objects for this run.
                 exec_metric = MetricsRun("Execution Time", 'tab:green', graph_filename="graph_execution_time.png", graph_title="Execution Time Per Run")
@@ -370,7 +370,7 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 if BATTERY:
                     plot_metric(battery_agg, main_folder, isAggregated=True)
                 
-                print(Fore.WHITE)
+                print(Fore.RESET)
             
             return result
         return wrapper
@@ -406,4 +406,4 @@ def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
 if __name__ == '__main__':
     result = dummy(range_mod=2**27, modulo=7, range_sum=2**28)
     print(Fore.BLUE + "Algorithm result:", result)
-    print(Fore.WHITE)
+    print(Fore.RESET)
