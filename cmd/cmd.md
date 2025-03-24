@@ -42,7 +42,7 @@ python3 code/networkPHE.py --client vm1 --operation add
 benchmark_config="--operation all --nb_runs 5 --msg_size 1024 --msg_nb 16"
 benchmark_config="--operation add_encrypted --nb_runs 5 --msg_size 4,6,8,10 --msg_nb 16"
 
-
+benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 4,6,8,10 --msg_nb 4"
 
 python code/phe_benchmark.py --client vm1 $benchmark_config
 python code/phe_benchmark.py --server $benchmark_config

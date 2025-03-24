@@ -1,5 +1,6 @@
 .env
-results_profile
-__pycache__
-vm
 .save
+__pycache__
+
+results_profile
+vm
