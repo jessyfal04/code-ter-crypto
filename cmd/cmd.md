@@ -48,6 +48,7 @@ benchmark_config="--operation add_encrypted --nb_runs 5 --msg_size 4,6,8,10 --ms
 benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 4,6,8,10 --msg_nb 4"
 
 benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 4,6,8,10 --msg_nb 16"
+benchmark_config="--operation add_encrypted --nb_runs 1 --msg_nb 1,2,3,4,5,6"
 
 
 ### Client Server

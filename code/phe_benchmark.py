@@ -183,6 +183,7 @@ def prepare_client_data(key_length):
 def run_client_operations(server_ip, operation, public_key, private_key, config):
     # Measure latency
     measure_latency_client(server_ip)
+    time.sleep(1)  # Wait for the server to start
 
     # Send public key
     send_public_key(server_ip, public_key)
@@ -365,7 +366,7 @@ if __name__ == '__main__':
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
     parser.add_argument("--msg_size", type=str, default="1024",
                         help="Message size in bits. Can be a single integer of bits or comma-separated list of exponent of 2 min max, e.g. '2,4,6,8,10'")
-    parser.add_argument("--msg_nb", type=int, default=4, help="Number of messages")
+    parser.add_argument("--msg_nb", type=str, default=4, help="Number of messages. Can be a single integer of bits or comma-separated list of exponent of 2 min max, e.g. '2,4,6,8,10'")
     parser.add_argument("--key_length", type=int, default=4096, help="Key length in bits")
     args = parser.parse_args()
 
@@ -383,6 +384,12 @@ if __name__ == '__main__':
     else:
         msg_size_list = [int(args.msg_size)]
 
+    # Decide how many messages to run
+    if ',' in args.msg_nb:
+        msg_nb_list = [2 ** int(x.strip()) for x in args.msg_nb.split(',')]
+    else:
+        msg_nb_list = [int(args.msg_nb)]
+
     # If client, prepare the client data
     public_key, private_key = None, None
     if args.client:
@@ -390,30 +397,33 @@ if __name__ == '__main__':
         input("Press Enter to start the benchmark...")
 
     # We will run each combination of operation and msg_size
-    for ms in msg_size_list:
-        for op in operations:
-            config = {
-                'nb_runs': args.nb_runs,
-                'msg_size': ms,
-                'msg_nb': args.msg_nb,
-                'key_length': args.key_length,
-                'operation': op,
-            }
+    for mb in msg_nb_list:
+        for ms in msg_size_list:
+            for op in operations:
+                
+                config = {
+                    'nb_runs': args.nb_runs,
+                    'msg_size': ms,
+                    'msg_nb': mb,
+                    'key_length': args.key_length,
+                    'operation': op,
+                }
 
-            # Print configuration
-            print(Fore.YELLOW)
-            print("Configuration:")
-            print(f"  Operation: {op}")
-            print(f"  Message Size: {ms} bits")
-            print(f"  Number of Messages: {args.msg_nb}")
-            print(f"  Key Length: {args.key_length} bits")
-            print(f"  Number of Runs: {args.nb_runs}")
-            print(Fore.RESET)
+                # Print configuration
+                print(Fore.YELLOW)
+                print("Configuration:")
+                print(f"  Operation: {config['operation']}")
+                print(f"  Message Size: {config['msg_size']} bits")
+                print(f"  Number of Messages: {config['msg_nb']}")
+                print(f"  Key Length: {config['key_length']} bits")
+                print(f"  Number of Runs: {config['nb_runs']}")
+                print(Fore.RESET)
 
-            if args.server:
-                server(config)
-            elif args.client:
-                client(args.client, config, public_key, private_key)
-            else:
-                print("Please specify either --server or --client <server_ip>; see --help.")
-                exit(1)
+                if args.server:
+                    server(config)
+                elif args.client:
+                    time.sleep(2)  # Wait for the server to start
+                    client(args.client, config, public_key, private_key)
+                else:
+                    print("Please specify either --server or --client <server_ip>; see --help.")
+                    exit(1)
