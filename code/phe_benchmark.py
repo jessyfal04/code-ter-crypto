@@ -96,39 +96,24 @@ def decrypt_messages(private_key, encrypted_messages):
     return [private_key.decrypt(m) for m in encrypted_messages]
 
 # Serialization
-def serialize_data(public_key, encrypted_number_list):
+def serialize_data(encrypted_number_list):
     print("> Serializing data")
     enc_with_one_pub_key = {}
-    enc_with_one_pub_key['public_key'] = {'g': public_key.g, 'n': public_key.n}
     enc_with_one_pub_key['values'] = [
         (str(x.ciphertext()), x.exponent) for x in encrypted_number_list
     ]
     return json.dumps(enc_with_one_pub_key)
 
-def deserialize_data(serialized_data):
+def deserialize_data(serialized_data, public_key):
     print("> Deserializing data")
     received_dict = json.loads(serialized_data)
-    pk = received_dict['public_key']
-    public_key_rec = paillier.PaillierPublicKey(n=int(pk['n']))
     enc_nums_rec = [
-        paillier.EncryptedNumber(public_key_rec, int(x[0]), int(x[1]))
+        paillier.EncryptedNumber(public_key, int(x[0]), int(x[1]))
         for x in received_dict['values']
     ]
-    return public_key_rec, enc_nums_rec
+    return enc_nums_rec
 
-# -----------------------------------------------------------
-#         Client and Server Logic 
-# -----------------------------------------------------------
-
-def prepare_client_data(key_length):
-    """
-    Prepares client data (key generation) outside of the benchmarked section.
-    """
-    public_key, private_key = generate_keypair(key_length)
-    return public_key, private_key
-
-# --------------------------
-# Actual client operations
+# Latency
 def measure_latency_client(server_ip):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((server_ip, get_port()))
@@ -144,9 +129,63 @@ def measure_latency_client(server_ip):
         print(f"Latency to {server_ip}: {latency_ms:.2f} ms")
         benchmark.current_network_latency = latency_ms
 
+def measure_latency_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", get_port()))
+        sock.listen(1)
+        conn, _ = sock.accept()
+        with conn:
+            if receive_data(conn) != "ping":
+                print("Unexpected latency request received.")
+                return
+
+            start_time = time.time()
+            send_data(conn, "pingpong")
+            if receive_data(conn) == "pong":
+                latency_ms = (time.time() - start_time) * 1000
+                print(f"Latency to client: {latency_ms:.2f} ms")
+                benchmark.current_network_latency = latency_ms
+            else:
+                print("Unexpected latency request received.")
+
+# Public Key
+def send_public_key(server_ip, public_key):
+    print("> Sending Public Key to Server")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((server_ip, get_port()))
+        send_data(sock, json.dumps({'public_key': {'g': public_key.g, 'n': public_key.n}}))
+        time.sleep(2) # Wait for the server to receive the public key
+
+def receive_public_key():
+    print("> Receiving Public Key from Client")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", get_port()))
+        sock.listen(1)
+        conn, _ = sock.accept()
+        with conn:
+            public_key_dict = json.loads(receive_data(conn))['public_key']
+            public_key = paillier.PaillierPublicKey(n=int(public_key_dict['n']))
+            return public_key
+
+# -----------------------------------------------------------
+#         Client and Server Logic 
+# -----------------------------------------------------------
+
+def prepare_client_data(key_length):
+    """
+    Prepares client data (key generation) outside of the benchmarked section.
+    """
+    public_key, private_key = generate_keypair(key_length)
+    return public_key, private_key
+
+# --------------------------
+# Actual client operations
 def run_client_operations(server_ip, operation, public_key, private_key, config):
     # Measure latency
     measure_latency_client(server_ip)
+
+    # Send public key
+    send_public_key(server_ip, public_key)
 
     nb_messages = config['msg_nb']
     msg_size = config['msg_size']
@@ -162,10 +201,10 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     }
     
     if operation in ['add', 'mul', 'div']:
-        data_to_compute['serialized_data'] = serialize_data(public_key, encrypted_messages)
+        data_to_compute['serialized_data'] = serialize_data(encrypted_messages)
     elif operation == 'add_encrypted':
-        data_to_compute['serialized_data'] = serialize_data(public_key, encrypted_messages)
-        data_to_compute['serialized_data2'] = serialize_data(public_key, encrypted_messages)
+        data_to_compute['serialized_data'] = serialize_data(encrypted_messages)
+        data_to_compute['serialized_data2'] = serialize_data(encrypted_messages)
     else:
         raise ValueError(f"Operation {operation} not supported by client!")
     
@@ -181,7 +220,7 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     sock.close()
     
     # Deserialize the result
-    _, encrypted_result = deserialize_data(serialized_data)
+    encrypted_result = deserialize_data(serialized_data, public_key)
     decrypted_result = decrypt_messages(private_key, encrypted_result)
 
     # Check correctness
@@ -237,31 +276,14 @@ def client(server_ip, config, public_key, private_key):
 
     benchmarked_fn(server_ip, config['operation'], public_key, private_key, config)
 
-
 # --------------------------
 # Actual server operations
-def measure_latency_server():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("0.0.0.0", get_port()))
-        sock.listen(1)
-        conn, _ = sock.accept()
-        with conn:
-            if receive_data(conn) != "ping":
-                print("Unexpected latency request received.")
-                return
-
-            start_time = time.time()
-            send_data(conn, "pingpong")
-            if receive_data(conn) == "pong":
-                latency_ms = (time.time() - start_time) * 1000
-                print(f"Latency to client: {latency_ms:.2f} ms")
-                benchmark.current_network_latency = latency_ms
-            else:
-                print("Unexpected latency request received.")
-               
 def run_server_operations(config):
     # Mesure server latency
     measure_latency_server()
+
+    # Receive public key
+    public_key = receive_public_key()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("0.0.0.0", get_port()))
@@ -278,14 +300,14 @@ def run_server_operations(config):
     # Deserialize
     if operation in ['add', 'mul', 'div']:
         serialized_data = data_to_compute['serialized_data']
-        public_key, encrypted_messages = deserialize_data(serialized_data)
+        encrypted_messages = deserialize_data(serialized_data, public_key)
     elif operation == 'add_encrypted':
         serialized_data = data_to_compute['serialized_data']
         serialized_data2 = data_to_compute.get('serialized_data2')
         if not serialized_data2:
             raise ValueError("Operation 'add_encrypted' requires a second data set.")
-        public_key, encrypted_messages = deserialize_data(serialized_data)
-        _, encrypted_messages2 = deserialize_data(serialized_data2)
+        encrypted_messages = deserialize_data(serialized_data, public_key)
+        encrypted_messages2 = deserialize_data(serialized_data2, public_key)
         if len(encrypted_messages) != len(encrypted_messages2):
             raise ValueError("Both encrypted message lists must have same length.")
     else:
@@ -306,7 +328,7 @@ def run_server_operations(config):
     else:
         raise ValueError(f"Operation {operation} not supported!")
     
-    serialized_data = serialize_data(public_key, encrypted_result)
+    serialized_data = serialize_data(encrypted_result)
     print("> Sending result back to client")
     send_data(conn, serialized_data)
     
