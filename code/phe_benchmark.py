@@ -132,7 +132,7 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
     msg_size = config['msg_size']
 
     scalar = random.getrandbits(1024)
-    messages = [random.getrandbits(msg_size) for _ in range(nb_messages)]
+    messages = [random.randrange(2**(msg_size-1), 2**msg_size) for _ in range(nb_messages)]
     encrypted_messages = encrypt_messages(public_key, messages)
 
     print(f"> Computing {operation} with {nb_messages} messages")
