@@ -12,46 +12,42 @@ import benchmark
 from benchmark import profile_and_monitor
 
 # -----------------------------------------------------------
-#               Homomorphic Operation Functions
+#              Constants & Global
 # -----------------------------------------------------------
-
-def add_encrypted_scalar(enc: paillier.EncryptedNumber, scalar: int) -> paillier.EncryptedNumber:
-    return enc + scalar
-
-def add_encrypted_numbers(enc1: paillier.EncryptedNumber, enc2: paillier.EncryptedNumber) -> paillier.EncryptedNumber:
-    return enc1 + enc2
-
-def multiply_encrypted_by_scalar(enc: paillier.EncryptedNumber, scalar: int) -> paillier.EncryptedNumber:
-    return enc * scalar
-
-def divide_encrypted_by_scalar(enc: paillier.EncryptedNumber, scalar: int) -> paillier.EncryptedNumber:
-    if scalar == 0:
-        raise ValueError("Division by zero is not allowed.")
-    reciprocal = 1 / scalar
-    return enc * reciprocal
+INITIAL_PORT = 12510  # Starting port for communication
+COUNT_PORT = 0        # Counter for port allocation
+BUFFER_SIZE = 4096    # Buffer size for socket reads/writes
 
 # -----------------------------------------------------------
-#                 Utility Functions
+#              Helper for Unique Port
 # -----------------------------------------------------------
-# Networking
-INITIAL_PORT = 12500  # Port for communication
-COUNT_PORT = 0  # Counter for port allocation
-BUFFER_SIZE = 4096  # Reduced buffer size for safer memory usage
-
 def get_port():
+    """
+    Returns a new port for each connection to avoid
+    conflicts when multiple runs happen quickly.
+    """
     global COUNT_PORT
     COUNT_PORT += 1
-    print(f"Port: {INITIAL_PORT + COUNT_PORT}")
-    return INITIAL_PORT + COUNT_PORT
+    port = INITIAL_PORT + COUNT_PORT
+    print(f"Using port: {port}")
+    return port
 
+# -----------------------------------------------------------
+#              Send / Receive Data
+# -----------------------------------------------------------
 def send_data(sock, data):
+    """
+    Send data reliably in two stages:
+    1) Send the length (4 bytes)
+    2) Send the actual payload in BUFFER_SIZE chunks
+    """
     data_bytes = data.encode('utf-8')
     data_length = len(data_bytes)
     
-    # Send the length of the data first
+    # Send the length (network byte order: !I)
     sock.sendall(struct.pack('!I', data_length))
     
-    # Send the actual data in chunks
+    # Send the actual data
     sent_bytes = 0
     while sent_bytes < data_length:
         chunk = data_bytes[sent_bytes:sent_bytes + BUFFER_SIZE]
@@ -61,13 +57,16 @@ def send_data(sock, data):
     benchmark.current_network_bytes_sent += data_length
 
 def receive_data(sock):
-    # Receive the length of the data first
+    """
+    Receives data in two stages:
+    1) Receive the 4-byte length
+    2) Receive the actual data in BUFFER_SIZE chunks
+    """
     raw_length = sock.recv(4)
     if not raw_length:
         return None
     data_length = struct.unpack('!I', raw_length)[0]
     
-    # Receive the actual data in chunks
     received_bytes = 0
     data_chunks = []
     while received_bytes < data_length:
@@ -81,185 +80,250 @@ def receive_data(sock):
     benchmark.current_network_bytes_received += received_bytes
     return data
 
-# Paillier
+# -----------------------------------------------------------
+#              Paillier Key/Encryption Helpers
+# -----------------------------------------------------------
 def generate_keypair(key_length):
-    print(f"> Generating Keypair of length {key_length}")
+    print(f"> Generating Keypair of length {key_length} bits")
     public_key, private_key = paillier.generate_paillier_keypair(n_length=key_length)
     return public_key, private_key
 
 def encrypt_messages(public_key, messages):
-    print(f"> Encrypting {len(messages)} Messages")
+    print(f"> Encrypting {len(messages)} message(s)")
     return [public_key.encrypt(m) for m in messages]
 
 def decrypt_messages(private_key, encrypted_messages):
-    print(f"> Decrypting {len(encrypted_messages)} Messages")
+    print(f"> Decrypting {len(encrypted_messages)} message(s)")
     return [private_key.decrypt(m) for m in encrypted_messages]
 
-# Serialization
 def serialize_data(encrypted_number_list):
-    print("> Serializing data")
-    enc_with_one_pub_key = {}
-    enc_with_one_pub_key['values'] = [
-        (str(x.ciphertext()), x.exponent) for x in encrypted_number_list
-    ]
-    return json.dumps(enc_with_one_pub_key)
+    """
+    Convert a list of EncryptedNumber into a JSON string.
+    """
+    print("> Serializing encrypted data")
+    enc_dict = {
+        'values': [
+            (str(x.ciphertext()), x.exponent) for x in encrypted_number_list
+        ]
+    }
+    return json.dumps(enc_dict)
 
 def deserialize_data(serialized_data, public_key):
-    print("> Deserializing data")
-    received_dict = json.loads(serialized_data)
-    enc_nums_rec = [
-        paillier.EncryptedNumber(public_key, int(x[0]), int(x[1]))
-        for x in received_dict['values']
+    """
+    Convert a JSON string back into a list of EncryptedNumber.
+    """
+    print("> Deserializing encrypted data")
+    data_dict = json.loads(serialized_data)
+    return [
+        paillier.EncryptedNumber(public_key, int(ctxt), int(exp))
+        for (ctxt, exp) in data_dict['values']
     ]
-    return enc_nums_rec
 
-# Latency
+# -----------------------------------------------------------
+#              Homomorphic Operations
+# -----------------------------------------------------------
+def add_encrypted_scalar(enc, scalar):
+    return enc + scalar
+
+def add_encrypted_numbers(enc1, enc2):
+    return enc1 + enc2
+
+def multiply_encrypted_by_scalar(enc, scalar):
+    return enc * scalar
+
+def divide_encrypted_by_scalar(enc, scalar):
+    if scalar == 0:
+        raise ValueError("Division by zero is not allowed.")
+    return enc * (1 / scalar)
+
+def perform_homomorphic_operation(operation, encrypted_msgs, scalar=None, encrypted_msgs2=None):
+    """
+    Apply the homomorphic operation to the data.
+    For 'add', 'mul', 'div': needs encrypted_msgs + scalar.
+    For 'add_encrypted': needs two sets of encrypted messages.
+    """
+    if operation == 'add':
+        return [add_encrypted_scalar(m, scalar) for m in encrypted_msgs]
+    elif operation == 'mul':
+        return [multiply_encrypted_by_scalar(m, scalar) for m in encrypted_msgs]
+    elif operation == 'div':
+        return [divide_encrypted_by_scalar(m, scalar) for m in encrypted_msgs]
+    elif operation == 'add_encrypted':
+        return [add_encrypted_numbers(m1, m2)
+                for m1, m2 in zip(encrypted_msgs, encrypted_msgs2)]
+    else:
+        raise ValueError(f"Unsupported operation: {operation}")
+
+# -----------------------------------------------------------
+#              Latency Measurement
+# -----------------------------------------------------------
 def measure_latency_client(server_ip):
+    """
+    Client side:
+      - Connect to the server, send "ping", wait for "pingpong", then send "pong".
+      - Measure round-trip latency and update benchmark.current_network_latency.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((server_ip, get_port()))
         start_time = time.time()
         send_data(sock, "ping")
-        
         if receive_data(sock) != "pingpong":
-            print("Unexpected latency response received.")
+            print("Unexpected response")
             return
-        latency_ms = (time.time() - start_time) * 1000
+        rtt_client = (time.time() - start_time) * 1000
         send_data(sock, "pong")
-
-        print(f"Latency to {server_ip}: {latency_ms:.2f} ms")
-        benchmark.current_network_latency = latency_ms
+        print(f"[Client] RTT: {rtt_client:.2f} ms")
+        benchmark.current_network_latency = rtt_client
 
 def measure_latency_server():
+    """
+    Server side:
+      - Accept a connection, wait for "ping" from the client, then send "pingpong".
+      - Wait for "pong" from the client, measure round-trip latency, and update benchmark.current_network_latency.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("0.0.0.0", get_port()))
         sock.listen(1)
         conn, _ = sock.accept()
         with conn:
             if receive_data(conn) != "ping":
-                print("Unexpected latency request received.")
+                print("Unexpected request")
                 return
-
             start_time = time.time()
             send_data(conn, "pingpong")
-            if receive_data(conn) == "pong":
-                latency_ms = (time.time() - start_time) * 1000
-                print(f"Latency to client: {latency_ms:.2f} ms")
-                benchmark.current_network_latency = latency_ms
-            else:
-                print("Unexpected latency request received.")
+            if receive_data(conn) != "pong":
+                print("Unexpected reply")
+                return
+            rtt_server = (time.time() - start_time) * 1000
+            print(f"[Server] RTT: {rtt_server:.2f} ms")
+            benchmark.current_network_latency = rtt_server
 
-# Public Key
+# -----------------------------------------------------------
+#              Public Key Exchange
+# -----------------------------------------------------------
 def send_public_key(server_ip, public_key):
+    """
+    Client sends its Paillier public key to the server.
+    """
     print("> Sending Public Key to Server")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((server_ip, get_port()))
-        send_data(sock, json.dumps({'public_key': {'g': public_key.g, 'n': public_key.n}}))
-        time.sleep(2) # Wait for the server to receive the public key
+        key_data = {'public_key': {'g': public_key.g, 'n': public_key.n}}
+        send_data(sock, json.dumps(key_data))
+        # Could wait for an ACK if desired; here just close.
 
 def receive_public_key():
+    """
+    Server receives the Paillier public key from the client.
+    """
     print("> Receiving Public Key from Client")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("0.0.0.0", get_port()))
         sock.listen(1)
         conn, _ = sock.accept()
         with conn:
-            public_key_dict = json.loads(receive_data(conn))['public_key']
-            public_key = paillier.PaillierPublicKey(n=int(public_key_dict['n']))
-            return public_key
+            data = receive_data(conn)
+            public_key_dict = json.loads(data)['public_key']
+            return paillier.PaillierPublicKey(n=int(public_key_dict['n']))
 
 # -----------------------------------------------------------
-#         Client and Server Logic 
+#   Validate and Generate Expected Results (Client side)
 # -----------------------------------------------------------
-
-def prepare_client_data(key_length):
+def compute_expected_result(operation, messages, scalar=None):
     """
-    Prepares client data (key generation) outside of the benchmarked section.
+    Create the expected (plaintext) result for 'add', 'mul', 'div' operation
+    given the original plaintext messages and the scalar.
     """
-    public_key, private_key = generate_keypair(key_length)
-    return public_key, private_key
+    if operation == "add":
+        return [m + scalar for m in messages]
+    elif operation == "mul":
+        return [m * scalar for m in messages]
+    elif operation == "div":
+        reciprocal = 1 / scalar
+        return [m * reciprocal for m in messages]
+    else:
+        raise ValueError(f"Operation {operation} not supported for expected result computation!")
 
-# --------------------------
-# Actual client operations
+# -----------------------------------------------------------
+#              Client Workflow
+# -----------------------------------------------------------
 def run_client_operations(server_ip, operation, public_key, private_key, config):
-    # Measure latency
+    """
+    1) Measure latency
+    2) Send public key
+    3) Encrypt random data, send to server for homomorphic ops
+    4) Receive result, decrypt, verify correctness
+    """
+    # Step 1: measure network latency
     measure_latency_client(server_ip)
-    time.sleep(1)  # Wait for the server to start
-
-    # Send public key
-    send_public_key(server_ip, public_key)
 
     nb_messages = config['msg_nb']
     msg_size = config['msg_size']
-
     scalar = random.getrandbits(1024)
+
+    # Step 3: create random messages and encrypt
     messages = [random.randrange(2**(msg_size-1), 2**msg_size) for _ in range(nb_messages)]
     encrypted_messages = encrypt_messages(public_key, messages)
 
-    print(f"> Computing {operation} with {nb_messages} messages")
+    print(f"> Computing {operation} over {nb_messages} message(s)")
     data_to_compute = {
         'operation': operation,
         'scalar': scalar
     }
-    
+
+    # 'add_encrypted' requires a second dataset; others just need one
     if operation in ['add', 'mul', 'div']:
         data_to_compute['serialized_data'] = serialize_data(encrypted_messages)
     elif operation == 'add_encrypted':
-        data_to_compute['serialized_data'] = serialize_data(encrypted_messages)
-        data_to_compute['serialized_data2'] = serialize_data(encrypted_messages)
+        # Reuse the same messages for simplicity
+        data_to_compute['serialized_data']  = serialize_data(encrypted_messages)
+        data_to_compute['serialized_data2'] = serialize_data(encrypt_messages(public_key, messages))
     else:
-        raise ValueError(f"Operation {operation} not supported by client!")
-    
-    # Connect to server
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((server_ip, get_port()))
-    
-    print("> Sending DataToCompute to Server")
-    send_data(sock, json.dumps(data_to_compute))
+        raise ValueError(f"Unsupported operation {operation} on client")
 
-    print("> Receiving Serialized Data from Server")
-    serialized_data = receive_data(sock)
-    sock.close()
-    
-    # Deserialize the result
+    # Connect, send data, receive processed result
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((server_ip, get_port()))
+        print("> Sending data to server for computation")
+        send_data(sock, json.dumps(data_to_compute))
+
+        print("> Waiting for server result...")
+        serialized_data = receive_data(sock)
+
+    # Step 4: decrypt and verify
     encrypted_result = deserialize_data(serialized_data, public_key)
     decrypted_result = decrypt_messages(private_key, encrypted_result)
 
     # Check correctness
-    if operation == "add":
-        expected_result = [msg + scalar for msg in messages]
+    if operation in ["add", "mul", "div"]:
+        expected_result = compute_expected_result(operation, messages, scalar)
     elif operation == "add_encrypted":
-        expected_result = [msg1 + msg2 for msg1, msg2 in zip(messages, messages)]
-    elif operation == "mul":
-        expected_result = [msg * scalar for msg in messages]
-    elif operation == "div":
-        reciprocal = 1 / scalar
-        expected_result = [msg * reciprocal for msg in messages]
+        # Just do a pairwise add in plaintext
+        expected_result = [m1 + m2 for (m1, m2) in zip(messages, messages)]
     else:
-        raise ValueError(f"Operation {operation} not supported for expected result computation!")
-    
+        raise ValueError(f"Unsupported operation {operation} for verification")
+
     ok = True
     for i, (dec, exp) in enumerate(zip(decrypted_result, expected_result)):
         # If it's int vs float, handle carefully:
         if isinstance(exp, int):
             if dec != exp:
-                print(f"{i} Decrypted value {dec} != expected {exp}")
+                print(f"Index {i} mismatch: decrypted={dec} vs expected={exp}")
                 ok = False
         else:
+            # float comparison
             if not math.isclose(dec, exp, rel_tol=1e-5):
-                print(f"{i} Decrypted value {dec} not close to expected {exp}")
+                print(f"Index {i} mismatch: decrypted={dec} not close to expected={exp}")
                 ok = False
 
     if ok:
-        print("All decrypted values match expected values")
+        print("All decrypted values match expected plaintext results!")
 
 def client(server_ip, config, public_key, private_key):
     """
-    Main client entry point.
-    1) Generate keys (un-benchmarked).
-    2) Wrap the actual network/homomorphic ops in profile_and_monitor.
+    Wrapper that runs the homomorphic operations with profiling/monitoring.
     """
-    folder_prexix = f"client_{config['operation']}_{config['msg_size']}bits"
-
+    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
         f"Client Operation | "
         f"NB_RUNS={config['nb_runs']}, "
@@ -271,73 +335,59 @@ def client(server_ip, config, public_key, private_key):
 
     benchmarked_fn = profile_and_monitor(
         number=config['nb_runs'],
-        folder_prefix=folder_prexix,
+        folder_prefix=folder_prefix,
         annotation=annotation_str
     )(run_client_operations)
 
     benchmarked_fn(server_ip, config['operation'], public_key, private_key, config)
 
-# --------------------------
-# Actual server operations
+# -----------------------------------------------------------
+#              Server Workflow
+# -----------------------------------------------------------
 def run_server_operations(config):
-    # Mesure server latency
+    """
+    1) Measure latency (server side)
+    2) Receive public key from client
+    3) Accept data from client, perform homomorphic op
+    4) Send result back
+    """
+    # Step 1: measure server latency
     measure_latency_server()
 
-    # Receive public key
-    public_key = receive_public_key()
+    # Step 3: accept data for homomorphic computation
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", get_port()))
+        sock.listen(1)
+        print("> Waiting for client data...")
+        conn, _ = sock.accept()
+        with conn:
+            data_to_compute = json.loads(receive_data(conn))
+            operation = data_to_compute['operation']
+            scalar = data_to_compute['scalar']
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("0.0.0.0", get_port()))
-    sock.listen(1)
-    print("> Waiting for client connection...")
-    
-    conn, _ = sock.accept()
-    print("> Receiving DataToCompute")
-    data_to_compute = receive_data(conn)
-    
-    data_to_compute = json.loads(data_to_compute)
-    operation = data_to_compute['operation']
-    
-    # Deserialize
-    if operation in ['add', 'mul', 'div']:
-        serialized_data = data_to_compute['serialized_data']
-        encrypted_messages = deserialize_data(serialized_data, public_key)
-    elif operation == 'add_encrypted':
-        serialized_data = data_to_compute['serialized_data']
-        serialized_data2 = data_to_compute.get('serialized_data2')
-        if not serialized_data2:
-            raise ValueError("Operation 'add_encrypted' requires a second data set.")
-        encrypted_messages = deserialize_data(serialized_data, public_key)
-        encrypted_messages2 = deserialize_data(serialized_data2, public_key)
-        if len(encrypted_messages) != len(encrypted_messages2):
-            raise ValueError("Both encrypted message lists must have same length.")
-    else:
-        raise ValueError(f"Operation {operation} not supported!")
-    
-    scalar = data_to_compute['scalar']
-    
-    print("> Performing Homomorphic Operations")
-    if operation == 'add':
-        encrypted_result = [add_encrypted_scalar(msg, scalar) for msg in encrypted_messages]
-    elif operation == 'add_encrypted':
-        encrypted_result = [add_encrypted_numbers(msg1, msg2)
-                            for msg1, msg2 in zip(encrypted_messages, encrypted_messages2)]
-    elif operation == 'mul':
-        encrypted_result = [multiply_encrypted_by_scalar(msg, scalar) for msg in encrypted_messages]
-    elif operation == 'div':
-        encrypted_result = [divide_encrypted_by_scalar(msg, scalar) for msg in encrypted_messages]
-    else:
-        raise ValueError(f"Operation {operation} not supported!")
-    
-    serialized_data = serialize_data(encrypted_result)
-    print("> Sending result back to client")
-    send_data(conn, serialized_data)
-    
-    conn.close()
-    sock.close()
+            # Deserialize
+            if operation == 'add_encrypted':
+                enc_msgs = deserialize_data(data_to_compute['serialized_data'], public_key)
+                enc_msgs2 = deserialize_data(data_to_compute['serialized_data2'], public_key)
+                if len(enc_msgs) != len(enc_msgs2):
+                    raise ValueError("Both encrypted message lists must have the same length.")
+                encrypted_result = perform_homomorphic_operation(
+                    operation, enc_msgs, encrypted_msgs2=enc_msgs2
+                )
+            else:
+                # add, mul, div
+                enc_msgs = deserialize_data(data_to_compute['serialized_data'], public_key)
+                encrypted_result = perform_homomorphic_operation(operation, enc_msgs, scalar=scalar)
+
+            serialized_result = serialize_data(encrypted_result)
+            print("> Sending homomorphic result back to client")
+            send_data(conn, serialized_result)
 
 def server(config):
-    folder_prexix = f"server_{config['operation']}_{config['msg_size']}bits"
+    """
+    Wrapper that runs the homomorphic operations with profiling/monitoring, on server side.
+    """
+    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
         f"Server Operation | "
         f"NB_RUNS={config['nb_runs']}, "
@@ -349,25 +399,28 @@ def server(config):
 
     benchmarked_fn = profile_and_monitor(
         number=config['nb_runs'],
-        folder_prefix=folder_prexix,
+        folder_prefix=folder_prefix,
         annotation=annotation_str
     )(run_server_operations)
 
     benchmarked_fn(config)
 
-# --------------------------
-# Main entry
+# -----------------------------------------------------------
+#              Main Entry Point
+# -----------------------------------------------------------
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", action='store_true', help="Run as server")
     parser.add_argument("--client", type=str, help="Run as client, specify server IP")
     parser.add_argument("--operation", type=str, default="add",
-                        help="Operation: 'add', 'add_encrypted', 'mul', 'div', or 'all'. Can be a comma-separated list")
+                        help="Operation(s): 'add', 'add_encrypted', 'mul', 'div', 'all' or comma-separated list.")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
     parser.add_argument("--msg_size", type=str, default="1024",
-                        help="Message size in bits. Can be a single integer of bits or comma-separated list of exponent of 2 min max, e.g. '2,4,6,8,10'")
-    parser.add_argument("--msg_nb", type=str, default=4, help="Number of messages. Can be a single integer of bits or comma-separated list of exponent of 2 min max, e.g. '2,4,6,8,10'")
-    parser.add_argument("--key_length", type=int, default=4096, help="Key length in bits")
+                        help="Message size in bits. Can be an integer or comma-separated exponent list (e.g. '2,4,6').")
+    parser.add_argument("--msg_nb", type=str, default="4",
+                        help="Number of messages. Can be an integer or comma-separated exponent list (e.g. '2,4,6').")
+    parser.add_argument("--key_length", type=int, default=4096, help="Paillier key length in bits")
+    parser.add_argument("--folder_prefix", type=str, default="", help="Folder name for results")
     args = parser.parse_args()
 
     # Decide which operations to run
@@ -390,40 +443,40 @@ if __name__ == '__main__':
     else:
         msg_nb_list = [int(args.msg_nb)]
 
-    # If client, prepare the client data
+    # If client, prepare once for all runs
     public_key, private_key = None, None
     if args.client:
-        public_key, private_key = prepare_client_data(args.key_length)
-        input("Press Enter to start the benchmark...")
+        public_key, private_key = generate_keypair(args.key_length)
+        send_public_key(args.client, public_key)
+    else:
+        public_key = receive_public_key()
+    print("Press Enter to start the benchmark.")
+    input()
 
-    # We will run each combination of operation and msg_size
-    for mb in msg_nb_list:
+    # Nested loops over different combinations
+    for nb in msg_nb_list:
         for ms in msg_size_list:
             for op in operations:
-                
                 config = {
                     'nb_runs': args.nb_runs,
                     'msg_size': ms,
-                    'msg_nb': mb,
+                    'msg_nb': nb,
                     'key_length': args.key_length,
                     'operation': op,
+                    'folder_prefix': args.folder_prefix
                 }
 
-                # Print configuration
+                # Display config
                 print(Fore.YELLOW)
                 print("Configuration:")
-                print(f"  Operation: {config['operation']}")
-                print(f"  Message Size: {config['msg_size']} bits")
-                print(f"  Number of Messages: {config['msg_nb']}")
-                print(f"  Key Length: {config['key_length']} bits")
-                print(f"  Number of Runs: {config['nb_runs']}")
+                for k, v in config.items():
+                    print(f"  {k}: {v}")
                 print(Fore.RESET)
 
                 if args.server:
                     server(config)
                 elif args.client:
-                    time.sleep(2)  # Wait for the server to start
                     client(args.client, config, public_key, private_key)
                 else:
-                    print("Please specify either --server or --client <server_ip>; see --help.")
+                    print("Please specify either --server or --client <server_ip>. See --help.")
                     exit(1)
