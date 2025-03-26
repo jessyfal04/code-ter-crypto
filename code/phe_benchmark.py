@@ -7,7 +7,11 @@ import struct
 import time
 from colorama import Fore
 
+# If you still want to import 'phe', keep it at top-level.
+# If 'phe' is unavailable in no-encryption scenarios, you can
+# enclose it in a try/except or conditionally import as well.
 from phe import paillier
+
 import benchmark
 from benchmark import profile_and_monitor
 
@@ -96,7 +100,7 @@ def decrypt_messages(private_key, encrypted_messages):
     print(f"> Decrypting {len(encrypted_messages)} message(s)")
     return [private_key.decrypt(m) for m in encrypted_messages]
 
-def serialize_data(encrypted_number_list):
+def serialize_encrypted_data(encrypted_number_list):
     """
     Convert a list of EncryptedNumber into a JSON string.
     """
@@ -108,7 +112,7 @@ def serialize_data(encrypted_number_list):
     }
     return json.dumps(enc_dict)
 
-def deserialize_data(serialized_data, public_key):
+def deserialize_encrypted_data(serialized_data, public_key):
     """
     Convert a JSON string back into a list of EncryptedNumber.
     """
@@ -120,7 +124,25 @@ def deserialize_data(serialized_data, public_key):
     ]
 
 # -----------------------------------------------------------
-#              Homomorphic Operations
+#           Plaintext "No-PHE" Helpers
+# -----------------------------------------------------------
+def serialize_plain_data(plain_list):
+    """
+    Convert a list of integers (plaintext) to JSON.
+    """
+    print("> Serializing plaintext data")
+    return json.dumps({'values': plain_list})
+
+def deserialize_plain_data(serialized_data):
+    """
+    Convert JSON back into a list of integers (plaintext).
+    """
+    print("> Deserializing plaintext data")
+    data_dict = json.loads(serialized_data)
+    return data_dict['values']
+
+# -----------------------------------------------------------
+#              Homomorphic / Plaintext Operations
 # -----------------------------------------------------------
 def add_encrypted_scalar(enc, scalar):
     return enc + scalar
@@ -136,21 +158,23 @@ def divide_encrypted_by_scalar(enc, scalar):
         raise ValueError("Division by zero is not allowed.")
     return enc * (1 / scalar)
 
-def perform_homomorphic_operation(operation, encrypted_msgs, scalar=None, encrypted_msgs2=None):
+def perform_homomorphic_operation(operation, data_list, scalar=None, data_list2=None):
     """
-    Apply the homomorphic operation to the data.
-    For 'add', 'mul', 'div': needs encrypted_msgs + scalar.
-    For 'add_encrypted': needs two sets of encrypted messages.
+    Applies the specified operation. For homomorphic usage with Paillier, these
+    are operator-overloaded EncryptedNumber objects. For plaintext usage, they
+    are plain integers (or floats). The same operations will work either way,
+    since the +, * operators are defined similarly in both contexts.
     """
+    print("> Performing Homomorphic Operation:", operation)
     if operation == 'add':
-        return [add_encrypted_scalar(m, scalar) for m in encrypted_msgs]
+        return [add_encrypted_scalar(m, scalar) for m in data_list]
     elif operation == 'mul':
-        return [multiply_encrypted_by_scalar(m, scalar) for m in encrypted_msgs]
+        return [multiply_encrypted_by_scalar(m, scalar) for m in data_list]
     elif operation == 'div':
-        return [divide_encrypted_by_scalar(m, scalar) for m in encrypted_msgs]
+        return [divide_encrypted_by_scalar(m, scalar) for m in data_list]
     elif operation == 'add_encrypted':
         return [add_encrypted_numbers(m1, m2)
-                for m1, m2 in zip(encrypted_msgs, encrypted_msgs2)]
+                for m1, m2 in zip(data_list, data_list2)]
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 
@@ -210,7 +234,6 @@ def send_public_key(server_ip, public_key):
         sock.connect((server_ip, get_port()))
         key_data = {'public_key': {'g': public_key.g, 'n': public_key.n}}
         send_data(sock, json.dumps(key_data))
-        # Could wait for an ACK if desired; here just close.
 
 def receive_public_key():
     """
@@ -250,34 +273,50 @@ def compute_expected_result(operation, messages, scalar=None):
 def run_client_operations(server_ip, operation, public_key, private_key, config):
     """
     1) Measure latency
-    2) Send public key
-    3) Encrypt random data, send to server for homomorphic ops
-    4) Receive result, decrypt, verify correctness
+    2) (optionally) Send public key if using PHE
+    3) Encrypt (or keep plaintext) random data, send to server
+    4) Receive result, decrypt (or keep plaintext), verify correctness
     """
+    use_phe = config['use_phe']
+
     # Step 1: measure network latency
     measure_latency_client(server_ip)
 
     nb_messages = config['msg_nb']
     msg_size = config['msg_size']
-    scalar = random.getrandbits(1024)
+    scalar = random.getrandbits(1024)  # scalar is always random 1024 bits
 
-    # Step 3: create random messages and encrypt
+    # Step 3: create random messages
     messages = [random.randrange(2**(msg_size-1), 2**msg_size) for _ in range(nb_messages)]
-    encrypted_messages = encrypt_messages(public_key, messages)
 
-    print(f"> Computing {operation} over {nb_messages} message(s)")
+    if use_phe:
+        encrypted_messages = encrypt_messages(public_key, messages)
+        print(f"> Computing {operation} over {nb_messages} message(s) with PHE")
+    else:
+        # No encryption => 'encrypted_messages' is actually just plaintext
+        encrypted_messages = messages
+        print(f"> Computing {operation} over {nb_messages} message(s) in plaintext mode")
+
+    # Prepare data to send to the server
     data_to_compute = {
         'operation': operation,
-        'scalar': scalar
+        'scalar': scalar,
+        'use_phe': use_phe
     }
 
-    # 'add_encrypted' requires a second dataset; others just need one
     if operation in ['add', 'mul', 'div']:
-        data_to_compute['serialized_data'] = serialize_data(encrypted_messages)
+        if use_phe:
+            data_to_compute['serialized_data'] = serialize_encrypted_data(encrypted_messages)
+        else:
+            data_to_compute['serialized_data'] = serialize_plain_data(encrypted_messages)
     elif operation == 'add_encrypted':
-        # Reuse the same messages for simplicity
-        data_to_compute['serialized_data']  = serialize_data(encrypted_messages)
-        data_to_compute['serialized_data2'] = serialize_data(encrypt_messages(public_key, messages))
+        # For simplicity, reuse the same list for second set
+        if use_phe:
+            data_to_compute['serialized_data']  = serialize_encrypted_data(encrypted_messages)
+            data_to_compute['serialized_data2'] = serialize_encrypted_data(encrypt_messages(public_key, messages))
+        else:
+            data_to_compute['serialized_data']  = serialize_plain_data(encrypted_messages)
+            data_to_compute['serialized_data2'] = serialize_plain_data(messages)
     else:
         raise ValueError(f"Unsupported operation {operation} on client")
 
@@ -290,9 +329,12 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
         print("> Waiting for server result...")
         serialized_data = receive_data(sock)
 
-    # Step 4: decrypt and verify
-    encrypted_result = deserialize_data(serialized_data, public_key)
-    decrypted_result = decrypt_messages(private_key, encrypted_result)
+    # Step 4: deserialize and decrypt (if PHE)
+    if use_phe:
+        encrypted_result = deserialize_encrypted_data(serialized_data, public_key)
+        decrypted_result = decrypt_messages(private_key, encrypted_result)
+    else:
+        decrypted_result = deserialize_plain_data(serialized_data)
 
     # Check correctness
     if operation in ["add", "mul", "div"]:
@@ -305,23 +347,23 @@ def run_client_operations(server_ip, operation, public_key, private_key, config)
 
     ok = True
     for i, (dec, exp) in enumerate(zip(decrypted_result, expected_result)):
-        # If it's int vs float, handle carefully:
+        # If we used PHE, dec is int/float. If not, also int/float. Check accordingly.
         if isinstance(exp, int):
             if dec != exp:
-                print(f"Index {i} mismatch: decrypted={dec} vs expected={exp}")
+                print(f"Index {i} mismatch: result={dec} vs expected={exp}")
                 ok = False
         else:
             # float comparison
             if not math.isclose(dec, exp, rel_tol=1e-5):
-                print(f"Index {i} mismatch: decrypted={dec} not close to expected={exp}")
+                print(f"Index {i} mismatch: result={dec} not close to expected={exp}")
                 ok = False
 
     if ok:
-        print("All decrypted values match expected plaintext results!")
+        print("All computed values match expected plaintext results!")
 
 def client(server_ip, config, public_key, private_key):
     """
-    Wrapper that runs the homomorphic operations with profiling/monitoring.
+    Wrapper that runs the homomorphic (or plaintext) operations with profiling/monitoring.
     """
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
@@ -330,7 +372,8 @@ def client(server_ip, config, public_key, private_key):
         f"MESSAGE_SIZE={config['msg_size']}, "
         f"MESSAGE_NB={config['msg_nb']}, "
         f"KEY_LENGTH={config['key_length']}, "
-        f"OPERATION={config['operation']}"
+        f"OPERATION={config['operation']}, "
+        f"USE_PHE={config['use_phe']}"
     )
 
     benchmarked_fn = profile_and_monitor(
@@ -344,17 +387,19 @@ def client(server_ip, config, public_key, private_key):
 # -----------------------------------------------------------
 #              Server Workflow
 # -----------------------------------------------------------
-def run_server_operations(config):
+def run_server_operations(config, public_key):
     """
     1) Measure latency (server side)
-    2) Receive public key from client
-    3) Accept data from client, perform homomorphic op
+    2) If using PHE, the public key was already received in main()
+    3) Accept data from client, perform homomorphic or plaintext op
     4) Send result back
     """
+    use_phe = config['use_phe']
+
     # Step 1: measure server latency
     measure_latency_server()
 
-    # Step 3: accept data for homomorphic computation
+    # Step 2 & 3: accept data for computation
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("0.0.0.0", get_port()))
         sock.listen(1)
@@ -364,28 +409,43 @@ def run_server_operations(config):
             data_to_compute = json.loads(receive_data(conn))
             operation = data_to_compute['operation']
             scalar = data_to_compute['scalar']
+            # The client also sends use_phe to confirm
+            client_use_phe = data_to_compute['use_phe']
 
-            # Deserialize
+            if client_use_phe != use_phe:
+                print("Warning: Client's use_phe != Server's use_phe. Results may be inconsistent.")
+
             if operation == 'add_encrypted':
-                enc_msgs = deserialize_data(data_to_compute['serialized_data'], public_key)
-                enc_msgs2 = deserialize_data(data_to_compute['serialized_data2'], public_key)
-                if len(enc_msgs) != len(enc_msgs2):
-                    raise ValueError("Both encrypted message lists must have the same length.")
-                encrypted_result = perform_homomorphic_operation(
-                    operation, enc_msgs, encrypted_msgs2=enc_msgs2
-                )
-            else:
-                # add, mul, div
-                enc_msgs = deserialize_data(data_to_compute['serialized_data'], public_key)
-                encrypted_result = perform_homomorphic_operation(operation, enc_msgs, scalar=scalar)
+                if use_phe:
+                    enc_msgs = deserialize_encrypted_data(data_to_compute['serialized_data'], public_key)
+                    enc_msgs2 = deserialize_encrypted_data(data_to_compute['serialized_data2'], public_key)
+                else:
+                    enc_msgs = deserialize_plain_data(data_to_compute['serialized_data'])
+                    enc_msgs2 = deserialize_plain_data(data_to_compute['serialized_data2'])
 
-            serialized_result = serialize_data(encrypted_result)
-            print("> Sending homomorphic result back to client")
+                if len(enc_msgs) != len(enc_msgs2):
+                    raise ValueError("Both message lists must have the same length.")
+                result = perform_homomorphic_operation(operation, enc_msgs, data_list2=enc_msgs2)
+            else:
+                # 'add', 'mul', 'div'
+                if use_phe:
+                    enc_msgs = deserialize_encrypted_data(data_to_compute['serialized_data'], public_key)
+                else:
+                    enc_msgs = deserialize_plain_data(data_to_compute['serialized_data'])
+                result = perform_homomorphic_operation(operation, enc_msgs, scalar=scalar)
+
+            # Step 4: serialize and send back
+            if use_phe:
+                serialized_result = serialize_encrypted_data(result)
+            else:
+                serialized_result = serialize_plain_data(result)
+
+            print("> Sending computation result back to client")
             send_data(conn, serialized_result)
 
-def server(config):
+def server(config, public_key):
     """
-    Wrapper that runs the homomorphic operations with profiling/monitoring, on server side.
+    Wrapper that runs homomorphic (or plaintext) operations with profiling/monitoring, on server side.
     """
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
@@ -394,7 +454,8 @@ def server(config):
         f"MESSAGE_SIZE={config['msg_size']}, "
         f"MESSAGE_NB={config['msg_nb']}, "
         f"KEY_LENGTH={config['key_length']}, "
-        f"OPERATION={config['operation']}"
+        f"OPERATION={config['operation']}, "
+        f"USE_PHE={config['use_phe']}"
     )
 
     benchmarked_fn = profile_and_monitor(
@@ -403,7 +464,7 @@ def server(config):
         annotation=annotation_str
     )(run_server_operations)
 
-    benchmarked_fn(config)
+    benchmarked_fn(config, public_key)
 
 # -----------------------------------------------------------
 #              Main Entry Point
@@ -416,12 +477,16 @@ if __name__ == '__main__':
                         help="Operation(s): 'add', 'add_encrypted', 'mul', 'div', 'all' or comma-separated list.")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
     parser.add_argument("--msg_size", type=str, default="1024",
-                        help="Message size in bits. Can be an integer or comma-separated exponent list (e.g. '2,4,6').")
+                        help="Message size in bits. Integer or comma-separated exponent list (e.g. '2,4,6').")
     parser.add_argument("--msg_nb", type=str, default="4",
-                        help="Number of messages. Can be an integer or comma-separated exponent list (e.g. '2,4,6').")
+                        help="Number of messages. Integer or comma-separated exponent list (e.g. '2,4,6').")
     parser.add_argument("--key_length", type=int, default=4096, help="Paillier key length in bits")
     parser.add_argument("--folder_prefix", type=str, default="", help="Folder name for results")
+
+    parser.add_argument("--use_phe", type=lambda x: x.lower() == 'true', default=True, help="Use Paillier-based encryption/homomorphic ops if True, else do plaintext operations. (Default: True)")
+
     args = parser.parse_args()
+    use_phe = args.use_phe
 
     # Decide which operations to run
     if args.operation == 'all':
@@ -443,13 +508,21 @@ if __name__ == '__main__':
     else:
         msg_nb_list = [int(args.msg_nb)]
 
-    # If client, prepare once for all runs
+    # Optionally generate & exchange keys if using PHE
     public_key, private_key = None, None
-    if args.client:
-        public_key, private_key = generate_keypair(args.key_length)
-        send_public_key(args.client, public_key)
+    if args.server:
+        if use_phe:
+            # Server: wait to receive the public key from the client
+            public_key = receive_public_key()
+    elif args.client:
+        if use_phe:
+            # Client: generate & send the public key to the server
+            public_key, private_key = generate_keypair(args.key_length)
+            send_public_key(args.client, public_key)
     else:
-        public_key = receive_public_key()
+        print("Please specify either --server or --client <server_ip>. See --help.")
+        exit(1)
+
     print("Press Enter to start the benchmark.")
     input()
 
@@ -463,10 +536,10 @@ if __name__ == '__main__':
                     'msg_nb': nb,
                     'key_length': args.key_length,
                     'operation': op,
-                    'folder_prefix': args.folder_prefix
+                    'folder_prefix': args.folder_prefix,
+                    'use_phe': use_phe
                 }
 
-                # Display config
                 print(Fore.YELLOW)
                 print("Configuration:")
                 for k, v in config.items():
@@ -474,9 +547,6 @@ if __name__ == '__main__':
                 print(Fore.RESET)
 
                 if args.server:
-                    server(config)
+                    server(config, public_key)
                 elif args.client:
                     client(args.client, config, public_key, private_key)
-                else:
-                    print("Please specify either --server or --client <server_ip>. See --help.")
-                    exit(1)
