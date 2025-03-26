@@ -50,7 +50,9 @@ benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 1024 --msg_nb
 benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 4,6,8,10 --msg_nb 16"
 benchmark_config="--operation add_encrypted --nb_runs 1 --msg_nb 1,2,3,4,5,6"
 
-benchmark_config="--operation div --nb_runs 5 --msg_size 1024 --msg_nb 16 --use_phe True --folder_prefix xxx"
+benchmark_config="--operation div --nb_runs 5 --msg_size 8 --msg_nb 4,8,16,32 --use_phe False --folder_prefix no_phe_medical_nb"
+
+benchmark_config="--operation div --nb_runs 5 --msg_size 2,4,8,16 --msg_nb 8 --use_phe True --folder_prefix medical_size"
 
 ### Client Server
 python code/phe_benchmark.py --client vm1 $benchmark_config

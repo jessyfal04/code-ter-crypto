@@ -12,7 +12,7 @@ from phe import paillier
 import benchmark
 from benchmark import profile_and_monitor
 
-INITIAL_PORT = 12512
+INITIAL_PORT = 12513
 COUNT_PORT = 0
 BUFFER_SIZE = 4096
 
@@ -66,11 +66,11 @@ def generate_keypair(key_length):
     return public_key, private_key
 
 def encrypt_messages(public_key, messages):
-    print(f"> Encrypting {len(messages)} message(s)")
+    print(f"> Encrypting {len(messages)} value(s)")
     return [public_key.encrypt(m) for m in messages]
 
 def decrypt_messages(private_key, encrypted_messages):
-    print(f"> Decrypting {len(encrypted_messages)} message(s)")
+    print(f"> Decrypting {len(encrypted_messages)} value(s)")
     return [private_key.decrypt(m) for m in encrypted_messages]
 
 def serialize_encrypted_data(encrypted_number_list):
@@ -135,16 +135,56 @@ def compute_expected_result(operation, messages, scalar=None):
     elif operation == "div":
         reciprocal = 1 / scalar
         return [m * reciprocal for m in messages]
+    elif operation == "add_encrypted":
+        # This is used if we're adding the same set of messages to itself
+        raise ValueError("For add_encrypted, the caller should do its own expected calc.")
     else:
         raise ValueError(f"Operation {operation} not supported for expected result computation!")
 
 ########################################################################
-# NEW/CHANGED: measure_latency_client(sock) now uses the existing socket.
+# Utility functions to generate, flatten, and unflatten mock medical data
+########################################################################
+def generate_mock_medical_data(num_patients, num_vitals):
+    """
+    Generate a list of mock medical data. Each 'patient' has
+    a list of random integer vital signs.
+    """
+    medical_data = []
+    for p_id in range(num_patients):
+        # For example, random 'vitals' from 60 to 120
+        vitals = [random.randint(60, 120) for _ in range(num_vitals)]
+        # Store (patient_id, list_of_vitals)
+        medical_data.append((p_id + 1, vitals))
+    return medical_data
+
+def flatten_medical_data(medical_data):
+    """
+    Flatten mock medical data (list of (patient_id, [vitals])) 
+    into a single list of integers for encryption/operations.
+    """
+    flattened = []
+    for p_id, vitals in medical_data:
+        flattened.extend(vitals)
+    return flattened
+
+def unflatten_medical_data(flattened_data, num_patients, num_vitals):
+    """
+    Reconstruct the (patient_id, [vitals]) structure
+    from a single flat list, assuming the same shape
+    (num_patients x num_vitals).
+    """
+    medical_data = []
+    idx = 0
+    for p_id in range(num_patients):
+        vitals = flattened_data[idx : idx + num_vitals]
+        medical_data.append((p_id + 1, vitals))
+        idx += num_vitals
+    return medical_data
+
+########################################################################
+# Latency measurement
 ########################################################################
 def measure_latency_client(sock):
-    """
-    Client side latency measurement using an already-opened socket (sock).
-    """
     start_time = time.time()
     send_data(sock, "ping")
     if receive_data(sock) != "pingpong":
@@ -155,13 +195,7 @@ def measure_latency_client(sock):
     print(f"[Client] RTT: {rtt_client:.2f} ms")
     benchmark.current_network_latency = rtt_client
 
-########################################################################
-# NEW/CHANGED: measure_latency_server(conn) now uses the accepted conn.
-########################################################################
 def measure_latency_server(conn):
-    """
-    Server side latency measurement using an already-accepted connection (conn).
-    """
     if receive_data(conn) != "ping":
         print("Unexpected request")
         return
@@ -175,50 +209,44 @@ def measure_latency_server(conn):
     benchmark.current_network_latency = rtt_server
 
 ########################################################################
-# NEW/CHANGED: send_public_key(sock, public_key) uses existing sock.
+# Key exchange
 ########################################################################
 def send_public_key(sock, public_key):
-    """
-    Client sends its Paillier public key to the server using an existing socket.
-    """
     print("> Sending Public Key to Server")
     key_data = {'public_key': {'g': public_key.g, 'n': public_key.n}}
     send_data(sock, json.dumps(key_data))
 
-########################################################################
-# NEW/CHANGED: receive_public_key(conn) uses an existing server conn.
-########################################################################
 def receive_public_key(conn):
-    """
-    Server receives the Paillier public key from the client over an existing connection.
-    """
     print("> Receiving Public Key from Client")
     data = receive_data(conn)
     public_key_dict = json.loads(data)['public_key']
     return paillier.PaillierPublicKey(n=int(public_key_dict['n']))
 
 ########################################################################
-# NEW/CHANGED: run_client_operations now takes in sock
-# and does NOT measure latency or re-connect. Just uses the same sock.
+# Client workflow for a single operation
 ########################################################################
 def run_client_operations(sock, operation, public_key, private_key, config):
-    """
-    Client workflow for a single operation, using an already-opened socket (sock).
-    """
     use_phe = config['use_phe']
 
-    nb_messages = config['msg_nb']
-    msg_size = config['msg_size']
+    # We'll interpret msg_nb as the number of patients
+    # and msg_size as the number of vitals per patient.
+    nb_patients = config['msg_nb']
+    nb_vitals_per_patient = config['msg_size']
+
+    # Instead of random big integer messages, generate mock medical data
+    medical_data = generate_mock_medical_data(nb_patients, nb_vitals_per_patient)
+    # Flatten medical data so we can encrypt it easily
+    flattened_data = flatten_medical_data(medical_data)
+
+    # We'll choose a random scalar for operations like 'add', 'mul', 'div'
     scalar = random.getrandbits(1024)
 
-    messages = [random.randrange(2**(msg_size-1), 2**msg_size) for _ in range(nb_messages)]
-
     if use_phe:
-        encrypted_messages = encrypt_messages(public_key, messages)
-        print(f"> Computing {operation} over {nb_messages} message(s) with PHE")
+        encrypted_data = encrypt_messages(public_key, flattened_data)
+        print(f"> Computing {operation} on {nb_patients} patients (each with {nb_vitals_per_patient} vitals) with PHE")
     else:
-        encrypted_messages = messages
-        print(f"> Computing {operation} over {nb_messages} message(s) in plaintext mode")
+        encrypted_data = flattened_data
+        print(f"> Computing {operation} on {nb_patients} patients (each with {nb_vitals_per_patient} vitals) in plaintext mode")
 
     data_to_compute = {
         'operation': operation,
@@ -228,20 +256,21 @@ def run_client_operations(sock, operation, public_key, private_key, config):
 
     if operation in ['add', 'mul', 'div']:
         if use_phe:
-            data_to_compute['serialized_data'] = serialize_encrypted_data(encrypted_messages)
+            data_to_compute['serialized_data'] = serialize_encrypted_data(encrypted_data)
         else:
-            data_to_compute['serialized_data'] = serialize_plain_data(encrypted_messages)
+            data_to_compute['serialized_data'] = serialize_plain_data(encrypted_data)
     elif operation == 'add_encrypted':
+        # We'll do a demonstration by "adding" the same flattened_data to itself
+        # in an encrypted manner
         if use_phe:
-            data_to_compute['serialized_data']  = serialize_encrypted_data(encrypted_messages)
-            data_to_compute['serialized_data2'] = serialize_encrypted_data(encrypt_messages(public_key, messages))
+            data_to_compute['serialized_data']  = serialize_encrypted_data(encrypted_data)
+            data_to_compute['serialized_data2'] = serialize_encrypted_data(encrypt_messages(public_key, flattened_data))
         else:
-            data_to_compute['serialized_data']  = serialize_plain_data(encrypted_messages)
-            data_to_compute['serialized_data2'] = serialize_plain_data(messages)
+            data_to_compute['serialized_data']  = serialize_plain_data(encrypted_data)
+            data_to_compute['serialized_data2'] = serialize_plain_data(flattened_data)
     else:
         raise ValueError(f"Unsupported operation {operation} on client")
 
-    # Send data to server over the existing sock
     print("> Sending data to server for computation")
     send_data(sock, json.dumps(data_to_compute))
 
@@ -254,31 +283,35 @@ def run_client_operations(sock, operation, public_key, private_key, config):
     else:
         decrypted_result = deserialize_plain_data(serialized_data)
 
+    # For verification, compute expected result in plaintext
     if operation in ["add", "mul", "div"]:
-        expected_result = compute_expected_result(operation, messages, scalar)
+        expected_result = compute_expected_result(operation, flattened_data, scalar)
     elif operation == "add_encrypted":
-        expected_result = [m1 + m2 for (m1, m2) in zip(messages, messages)]
+        # This means: each vital gets added to itself =>  vital + vital
+        expected_result = [m1 + m2 for (m1, m2) in zip(flattened_data, flattened_data)]
     else:
         raise ValueError(f"Unsupported operation {operation} for verification")
 
+    # Check correctness
     ok = True
     for i, (dec, exp) in enumerate(zip(decrypted_result, expected_result)):
+        # If it's an integer-based operation, check equality
         if isinstance(exp, int):
             if dec != exp:
                 print(f"Index {i} mismatch: result={dec} vs expected={exp}")
                 ok = False
         else:
+            # If it's float-based (from division), use isclose
             if not math.isclose(dec, exp, rel_tol=1e-5):
                 print(f"Index {i} mismatch: result={dec} not close to expected={exp}")
                 ok = False
 
     if ok:
         print("All computed values match expected plaintext results!")
+    else:
+        print("Some differences were found in the homomorphic results.")
 
 def client(sock, config, public_key, private_key):
-    """
-    Wrap run_client_operations with profiling, using the same sock each time.
-    """
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
         f"Client Operation | "
@@ -300,13 +333,9 @@ def client(sock, config, public_key, private_key):
     benchmarked_fn(sock, config['operation'], public_key, private_key, config)
 
 ########################################################################
-# NEW/CHANGED: run_server_operations now takes an existing conn
-# and does NOT do a second accept() or measure latency. 
+# Server workflow
 ########################################################################
 def run_server_operations(conn, config, public_key):
-    """
-    Server side: read the incoming data, do the homomorphic or plaintext op, send result back.
-    """
     use_phe = config['use_phe']
 
     print("> Waiting for client data...")
@@ -327,7 +356,7 @@ def run_server_operations(conn, config, public_key):
             enc_msgs2 = deserialize_plain_data(data_to_compute['serialized_data2'])
 
         if len(enc_msgs) != len(enc_msgs2):
-            raise ValueError("Both message lists must have the same length.")
+            raise ValueError("Both lists must have the same length.")
 
         result = perform_homomorphic_operation(operation, enc_msgs, data_list2=enc_msgs2)
     else:
@@ -335,6 +364,7 @@ def run_server_operations(conn, config, public_key):
             enc_msgs = deserialize_encrypted_data(data_to_compute['serialized_data'], public_key)
         else:
             enc_msgs = deserialize_plain_data(data_to_compute['serialized_data'])
+
         result = perform_homomorphic_operation(operation, enc_msgs, scalar=scalar)
 
     if use_phe:
@@ -346,9 +376,6 @@ def run_server_operations(conn, config, public_key):
     send_data(conn, serialized_result)
 
 def server(conn, config, public_key):
-    """
-    Wrap run_server_operations with profiling, using the same accepted conn each time.
-    """
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['msg_size']}bits"
     annotation_str = (
         f"Server Operation | "
@@ -369,7 +396,7 @@ def server(conn, config, public_key):
     benchmarked_fn(conn, config, public_key)
 
 #####################################################################
-# NEW/CHANGED: Main now does exactly one connect (client) or one accept (server).
+# Main
 #####################################################################
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -379,9 +406,9 @@ if __name__ == '__main__':
                         help="Operation(s): 'add', 'add_encrypted', 'mul', 'div', 'all' or comma-separated list.")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
     parser.add_argument("--msg_size", type=str, default="1024",
-                        help="Message size in bits. Integer or comma-separated exponent list (e.g. '2,4,6').")
+                        help="Interpreted now as the 'number of vitals' per patient (integer or comma-separated).")
     parser.add_argument("--msg_nb", type=str, default="4",
-                        help="Number of messages. Integer or comma-separated exponent list (e.g. '2,4,6').")
+                        help="Interpreted now as the 'number of patients' (integer or comma-separated).")
     parser.add_argument("--key_length", type=int, default=4096, help="Paillier key length in bits")
     parser.add_argument("--folder_prefix", type=str, default="", help="Folder name for results")
     parser.add_argument("--use_phe", type=lambda x: x.lower() == 'true', default=True,
@@ -398,25 +425,22 @@ if __name__ == '__main__':
         operations = [args.operation]
 
     if ',' in args.msg_size:
-        msg_size_list = [2 ** int(x.strip()) for x in args.msg_size.split(',')]
+        msg_size_list = [int(x.strip()) for x in args.msg_size.split(',')]
     else:
         msg_size_list = [int(args.msg_size)]
 
     if ',' in args.msg_nb:
-        msg_nb_list = [2 ** int(x.strip()) for x in args.msg_nb.split(',')]
+        msg_nb_list = [int(x.strip()) for x in args.msg_nb.split(',')]
     else:
         msg_nb_list = [int(args.msg_nb)]
 
     public_key, private_key = None, None
 
     ####################################################################
-    # SERVER side: one bind/listen/accept, then optional key-exchange, 
-    # measure latency once, then handle operations in a loop.
+    # SERVER mode
     ####################################################################
     if args.server:
-        # 1) Create a listening socket (only once)
         server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # You can choose a fixed port or the get_port() function
         main_port = get_port()
         server_sock.bind(("0.0.0.0", main_port))
         server_sock.listen(1)
@@ -424,24 +448,23 @@ if __name__ == '__main__':
         conn, addr = server_sock.accept()
         print(f"Server accepted connection from {addr}")
 
-        # 2) If using PHE, receive the public key
         if use_phe:
             public_key = receive_public_key(conn)
 
-        # 3) Measure latency once using the same conn
         measure_latency_server(conn)
 
-        # 4) For each combination, run server ops with the same conn
         print("Press Enter to start the benchmark.")
         input()
 
         for nb in msg_nb_list:
             for ms in msg_size_list:
                 for op in operations:
+                    benchmark.current_network_bytes_sent = 0
+                    benchmark.current_network_bytes_received = 0
                     config = {
                         'nb_runs': args.nb_runs,
-                        'msg_size': ms,
-                        'msg_nb': nb,
+                        'msg_size': ms,   # number of vitals
+                        'msg_nb': nb,     # number of patients
                         'key_length': args.key_length,
                         'operation': op,
                         'folder_prefix': args.folder_prefix,
@@ -456,40 +479,36 @@ if __name__ == '__main__':
 
                     server(conn, config, public_key)
 
-        # 5) Close everything
         conn.close()
         server_sock.close()
 
     ####################################################################
-    # CLIENT side: one socket connect, then optional key-exchange,
-    # measure latency once, then handle operations in a loop.
+    # CLIENT mode
     ####################################################################
     elif args.client:
-        # 1) Create a client socket (only once)
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         main_port = get_port()
         client_sock.connect((args.client, main_port))
         print(f"Client connected to {args.client}:{main_port}")
 
-        # 2) If using PHE, generate key pair and send public key once
         if use_phe:
             public_key, private_key = generate_keypair(args.key_length)
             send_public_key(client_sock, public_key)
 
-        # 3) Measure latency once using the same socket
         measure_latency_client(client_sock)
 
-        # 4) For each combination, run client ops with the same socket
         print("Press Enter to start the benchmark.")
         input()
 
         for nb in msg_nb_list:
             for ms in msg_size_list:
                 for op in operations:
+                    benchmark.current_network_bytes_sent = 0
+                    benchmark.current_network_bytes_received = 0
                     config = {
                         'nb_runs': args.nb_runs,
-                        'msg_size': ms,
-                        'msg_nb': nb,
+                        'msg_size': ms,   # number of vitals
+                        'msg_nb': nb,     # number of patients
                         'key_length': args.key_length,
                         'operation': op,
                         'folder_prefix': args.folder_prefix,
@@ -504,7 +523,7 @@ if __name__ == '__main__':
 
                     client(client_sock, config, public_key, private_key)
 
-        # 5) Close socket
         client_sock.close()
+
     else:
         print("Please specify either --server or --client <server_ip>. See --help.")

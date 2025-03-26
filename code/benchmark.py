@@ -233,9 +233,6 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                     global current_network_bytes_sent, current_network_bytes_received, current_network_latency
                     monitor_time_start = time.perf_counter()
                     memory_before = psutil_process.memory_info().rss
-                    current_network_bytes_sent = 0
-                    current_network_bytes_received = 0
-                    current_network_latency = 0
 
                     while not stop_monitoring.is_set():
                         monitor_time_current = time.perf_counter() - monitor_time_start
