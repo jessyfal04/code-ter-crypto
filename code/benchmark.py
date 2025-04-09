@@ -193,6 +193,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
             net_sent_agg = MetricsAggregated("Network Bytes Sent", 'tab:pink', graph_filename="graph_avg_network_sent.png", graph_title="Average Network Bytes Sent Over % Time")
             net_recv_agg = MetricsAggregated("Network Bytes Received", 'tab:purple', graph_filename="graph_avg_network_received.png", graph_title="Average Network Bytes Received Over % Time")
             net_latency_agg = MetricsAggregated("Network Latency (ms)", 'tab:cyan', graph_filename="graph_avg_network_latency.png", graph_title="Average Network Latency Over % Time")
+            disk_read_agg = MetricsAggregated("Disk Read (bytes)", 'tab:gray', graph_filename="graph_avg_disk_read.png", graph_title="Average Disk Read Bytes Over % Time")
+            disk_write_agg = MetricsAggregated("Disk Write (bytes)", 'tab:brown', graph_filename="graph_avg_disk_write.png", graph_title="Average Disk Write Bytes Over % Time")
             if BATTERY:
                 battery_agg = MetricsAggregated("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_avg_battery.png", graph_title="Average Battery Consumption Over % Time")
             
@@ -223,6 +225,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 network_sent_metric = MetricsRun("Network Bytes Sent", 'tab:pink', graph_filename="graph_network_sent.png", graph_title="Network Bytes Sent Over Time")
                 network_received_metric = MetricsRun("Network Bytes Received", 'tab:purple', graph_filename="graph_network_received.png", graph_title="Network Bytes Received Over Time")
                 network_latency_metric = MetricsRun("Network Latency (ms)", 'tab:cyan', graph_filename="graph_network_latency.png", graph_title="Network Latency Over Time")
+                disk_read_metric = MetricsRun("Disk Read (bytes)", 'tab:gray', graph_filename="graph_disk_read.png", graph_title="Disk Read Bytes Over Time")
+                disk_write_metric = MetricsRun("Disk Write (bytes)", 'tab:brown', graph_filename="graph_disk_write.png", graph_title="Disk Write Bytes Over Time")
                 if BATTERY:
                     battery_metric = MetricsRun("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_battery.png", graph_title="Battery Consumption Over Time")
                 
@@ -233,6 +237,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                     global current_network_bytes_sent, current_network_bytes_received, current_network_latency
                     monitor_time_start = time.perf_counter()
                     memory_before = psutil_process.memory_info().rss
+                    disk_io_before = psutil.disk_io_counters()
+
 
                     while not stop_monitoring.is_set():
                         monitor_time_current = time.perf_counter() - monitor_time_start
@@ -247,11 +253,15 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                             battery_meter.end()
                             battery_metric.add_measurement(monitor_time_current, battery_meter.result.pkg[0])
 
+                        disk_io_current = psutil.disk_io_counters()
+                        disk_read_metric.add_measurement(monitor_time_current,  disk_io_current.read_bytes - disk_io_before.read_bytes)
+                        disk_write_metric.add_measurement(monitor_time_current,  disk_io_current.write_bytes - disk_io_before.write_bytes)
+
                         cpu_metric.add_measurement(monitor_time_current, 100 - cpu_times.idle)
                         memory_metric.add_measurement(monitor_time_current, psutil_process.memory_info().rss - memory_before)
                         network_sent_metric.add_measurement(monitor_time_current, current_network_bytes_sent)
                         network_received_metric.add_measurement(monitor_time_current, current_network_bytes_received)
-                        network_latency_metric.add_measurement(monitor_time_current, current_network_latency)                         
+                        network_latency_metric.add_measurement(monitor_time_current, current_network_latency)     
                 
                 monitor_thread = threading.Thread(target=monitor, daemon=True)
                 monitor_thread.start()
@@ -286,6 +296,11 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"- Total Bytes Sent: {format_bytes(current_network_bytes_sent)}", log_file)
                 log_message(f"- Total Bytes Received: {format_bytes(current_network_bytes_received)}", log_file)
                 log_message(f"- Total Network Latency: {current_network_latency:.6f} ms", log_file)
+
+                log_message("### Disk I/O Metrics", log_file)
+                log_message(f"- Total Disk Read: {format_bytes(disk_read_metric.get_sum())}", log_file)
+                log_message(f"- Total Disk Write: {format_bytes(disk_write_metric.get_sum())}", log_file)
+
                 
                 if BATTERY:
                     log_message("### Battery Consumption", log_file)
@@ -296,6 +311,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 plot_metric(memory_metric, run_folder, isAggregated=False)
                 plot_metric(network_sent_metric, run_folder, isAggregated=False)
                 plot_metric(network_received_metric, run_folder, isAggregated=False)
+                plot_metric(disk_read_metric, run_folder, isAggregated=False)
+                plot_metric(disk_write_metric, run_folder, isAggregated=False)
                 if BATTERY:
                     plot_metric(battery_metric, run_folder, isAggregated=False)
                 
@@ -309,6 +326,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 net_sent_agg.add_metric_run(network_sent_metric)
                 net_recv_agg.add_metric_run(network_received_metric)
                 net_latency_agg.add_metric_run(network_latency_metric)
+                disk_read_agg.add_metric_run(disk_read_metric)
+                disk_write_agg.add_metric_run(disk_write_metric)
                 if BATTERY:
                     battery_agg.add_metric_run(battery_metric)
                 
@@ -364,7 +383,15 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"- Average (avg of avgs): {net_latency_agg.aggregated_avg():.6f} ms", aggregated_log)
                 log_message(f"- Min (min of avgs): {net_latency_agg.aggregated_min_of_avg():.6f} ms", aggregated_log)
                 log_message(f"- Max (max of avgs): {net_latency_agg.aggregated_max_of_avg():.6f} ms", aggregated_log)
-                
+
+                log_message("### Disk I/O Metrics", aggregated_log)
+                log_message("#### Disk Read", aggregated_log)
+                log_message(f"- Average (avg of avgs): {format_bytes(disk_read_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- =Max (max of maxs): {format_bytes(disk_read_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message("#### Disk Write", aggregated_log)
+                log_message(f"- Average (avg of avgs): {format_bytes(disk_write_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Max (max of maxs): {format_bytes(disk_write_agg.aggregated_max_of_avg())}", aggregated_log)
+
                 if BATTERY:
                     log_message("### Battery Consumption", aggregated_log)
                     log_message(f"- Average Battery Consumption: {battery_agg.aggregated_avg_of_sum():.6f} Joules", aggregated_log)
@@ -376,6 +403,8 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 plot_metric(net_recv_agg, main_folder, isAggregated=True)
                 #plot_metric(exec_time_agg, main_folder, isAggregated=True)
                 #plot_metric(net_latency_agg, main_folder, isAggregated=True)
+                plot_metric(disk_read_agg, main_folder, isAggregated=True)
+                plot_metric(disk_write_agg, main_folder, isAggregated=True)
                 if BATTERY:
                     plot_metric(battery_agg, main_folder, isAggregated=True)
                 
@@ -413,6 +442,6 @@ def dummy(range_mod=2**24, modulo=7, range_sum=2**8):
     return (totalMod, totalSum)
 
 if __name__ == '__main__':
-    result = dummy(range_mod=2**27, modulo=7, range_sum=2**28)
+    result = dummy(range_mod=2**20, modulo=7, range_sum=2**20)
     print(Fore.BLUE + "Algorithm result:", result)
     print(Fore.RESET)

@@ -40,23 +40,15 @@ rm vm/vm2/code -r; cp code vm/vm2/code -r;
 rm vm/vps/code -r; cp code vm/vps/code -r;
 
 ## On vm
-source .env/bin/activate
+cd ter; source .env/bin/activate
 
 ### Benchmark Config
-benchmark_config="--operation all --nb_runs 5 --msg_size 1024 --msg_nb 16"
-benchmark_config="--operation add_encrypted --nb_runs 5 --msg_size 4,6,8,10 --msg_nb 16"
-benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 1024 --msg_nb 4"
-
-benchmark_config="--operation add_encrypted --nb_runs 1 --msg_size 4,6,8,10 --msg_nb 16"
-benchmark_config="--operation add_encrypted --nb_runs 1 --msg_nb 1,2,3,4,5,6"
-
-benchmark_config="--operation div --nb_runs 5 --msg_size 8 --msg_nb 4,8,16,32 --use_phe False --folder_prefix no_phe_medical_nb"
-
-benchmark_config="--operation div --nb_runs 5 --msg_size 2,4,8,16 --msg_nb 8 --use_phe True --folder_prefix medical_size"
+benchmark_config="--operation add --port 12345 --nb_runs 2 --nb_patients 2 --nb_vitals 8   --key_length 2048,4096 --nb_operations 10 --folder_prefix test"
 
 ### Client Server
-python code/phe_benchmark.py --client vm1 $benchmark_config
-python code/phe_benchmark.py --server $benchmark_config
+python code/he_benchmark.py --client vm1 $benchmark_config
+python code/he_benchmark.py --server $benchmark_config
+python code/benchmark.py
 
 ### Remove rp
 rm results_profile/* -rf
