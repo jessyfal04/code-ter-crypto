@@ -18,9 +18,9 @@ def client():
     scalar_vector = [scalar] * len(data)
 
     encrypted_data = ts.ckks_vector(context, data)
-    encrypted_scalar = ts.ckks_vector(context, scalar_vector)
+    #encrypted_scalar = ts.ckks_vector(context, scalar_vector)
 
-    encrypted_result = server(encrypted_data, encrypted_scalar)
+    encrypted_result = server(encrypted_data, scalar)
 
     # Decrypt the result
     decrypted_result = encrypted_result.decrypt(secret_key) 

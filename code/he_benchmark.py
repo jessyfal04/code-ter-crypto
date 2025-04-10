@@ -194,9 +194,8 @@ class BFVScheme(HEScheme):
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using BFV"""
-        scalar_vector = [scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.bfv_vector(enc.context(), scalar_vector)
-        return enc + encrypted_scalar
+        print(f"> Adding scalar {scalar} to encrypted number {enc}")
+        return enc + scalar
     
     def add_encrypted(self, enc1, enc2):
         """Add two encrypted numbers using BFV"""
@@ -204,9 +203,7 @@ class BFVScheme(HEScheme):
     
     def multiply_scalar(self, enc, scalar):
         """Multiply an encrypted number by a scalar using BFV"""
-        scalar_vector = [scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.bfv_vector(enc.context(), scalar_vector)
-        return enc * encrypted_scalar
+        return enc * scalar
     
     def multiply_encrypted(self, enc1, enc2):
         """Multiply two encrypted numbers using BFV"""
@@ -265,9 +262,7 @@ class CKKSScheme(HEScheme):
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using CKKS"""
-        scalar_vector = [scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.ckks_vector(enc.context(), scalar_vector)
-        return enc + encrypted_scalar
+        return enc + scalar
     
     def add_encrypted(self, enc1, enc2):
         """Add two encrypted numbers using CKKS"""
@@ -275,9 +270,7 @@ class CKKSScheme(HEScheme):
     
     def multiply_scalar(self, enc, scalar):
         """Multiply an encrypted number by a scalar using CKKS"""
-        scalar_vector = [scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.ckks_vector(enc.context(), scalar_vector)
-        return enc * encrypted_scalar
+        return enc * scalar
     
     def multiply_encrypted(self, enc1, enc2):
         """Multiply two encrypted numbers using CKKS"""
@@ -322,7 +315,7 @@ class TFHEScheme(HEScheme):
         
         # Compile the circuit
         compiler = fhe.Compiler(functionToCompile, input_types)
-        inputset = [(i, j) for i in range(10) for j in range(128)]
+        inputset = [(i, j) for i in range(2**8) for j in range(2**8)]
         circuit = compiler.compile(inputset)
         circuit.keygen()
         
@@ -517,14 +510,14 @@ def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, dat
             if operation == 'add_scalar':
                 result = [scheme.add_scalar(m, scalar) for m in result]
             elif operation == 'add_encrypted':
-                result = [scheme.add_encrypted(m, data_list2[i]) for i, m in enumerate(result)]
+                result = [scheme.add_encrypted(m, m2) for m, m2 in zip(result, data_list2)]
             elif operation == 'mul_scalar':
                 result = [scheme.multiply_scalar(m, scalar) for m in result]
             elif operation == 'mul_encrypted':
-                result = [scheme.multiply_encrypted(m, data_list2[i]) for i, m in enumerate(result)]
+                result = [scheme.multiply_encrypted(m, m2) for m, m2 in zip(result, data_list2)]
             else:
                 raise ValueError(f"Unsupported operation: {operation}")
-    
+    print(f"> Result: {result}")
     return result
 #!SECTION - END HOMOMORPHIC OPERATIONS
 
@@ -636,7 +629,7 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
     # Generate and process medical data
     medical_data = generate_mock_medical_data(nb_patients, nb_vitals)
     flattened_data = flatten_medical_data(medical_data)
-    scalar = random.getrandbits(1024)
+    scalar = random.randint(2**8, 2**16)
 
     # Encrypt data
     benchmark.encrypt_start_time = time.perf_counter()
