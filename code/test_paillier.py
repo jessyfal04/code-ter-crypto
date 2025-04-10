@@ -9,10 +9,9 @@ MESSAGES = [random.getrandbits(MESSAGE_SIZE) for _ in range(MESSAGE_NB)]
 
 KEY_LENGTH = 2**12
 
-SCALAR = 5
+SCALAR = 2.9
 
 # Role1
-@profile_and_monitor
 def pheEncryptDecrypt():
     print("> Key Generation")
     public_key, private_key = paillier.generate_paillier_keypair(n_length=KEY_LENGTH)
@@ -26,20 +25,38 @@ def pheEncryptDecrypt():
     return public_key, private_key, encrypted_number_list, decrypted_number_list
 
 # Role2
-@profile_and_monitor
 def additionEncryptedNumberScalar(encrypted_numbers, scalar):
     return [enc_num + scalar for enc_num in encrypted_numbers]
 
-@profile_and_monitor
 def additionEncryptedNumber(encrypted_numbers1, encrypted_numbers2):
     return [enc_num1 + enc_num2 for enc_num1, enc_num2 in zip(encrypted_numbers1, encrypted_numbers2)]
 
-@profile_and_monitor
 def multiplicationEncryptedNumberScalar(encrypted_numbers, scalar):
     return [enc_num * scalar for enc_num in encrypted_numbers]
 
-if __name__ == '__main__':
-    public_key, private_key, encrypted_number_list, _ = pheEncryptDecrypt()
-    encrypted_result_add_scalar = additionEncryptedNumberScalar(encrypted_number_list, SCALAR)
-    encrypted_result_add = additionEncryptedNumber(encrypted_number_list, encrypted_number_list[::-1])
-    encrypted_result_mul_scalar = multiplicationEncryptedNumberScalar(encrypted_number_list, SCALAR)
+def client():
+    # Generate public and secret keys
+    key_length = 4096
+    public_key, private_key = paillier.generate_paillier_keypair(n_length=key_length)
+
+    # Encrypt data and scalar
+    data = [60, 66, 73, 81, 90]
+    scalar = 2.1
+
+    # Encrypt the data
+    encrypted_data = [public_key.encrypt(x) for x in data]
+    encrypted_scalar = public_key.encrypt(scalar)
+
+    encrypted_result = server(encrypted_data, encrypted_scalar)
+
+    # Decrypt the result
+    decrypted_result = [private_key.decrypt(x) for x in encrypted_result]
+    print(decrypted_result)
+
+def server(encrypted_data, encrypted_scalar):
+    # Add encrypted data and scalar
+    encrypted_add = [x + encrypted_scalar for x in encrypted_data]
+    return encrypted_add
+
+if __name__ == "__main__":
+    client()

@@ -43,7 +43,13 @@ rm vm/vps/code -r; cp code vm/vps/code -r;
 cd ter; source .env/bin/activate
 
 ### Benchmark Config
-benchmark_config="--operation add --port 12345 --nb_runs 2 --nb_patients 2 --nb_vitals 8   --key_length 2048,4096 --nb_operations 10 --folder_prefix test"
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 2 --nb_patients 2 --nb_vitals 8 --key_length 4096 --nb_operations 32 --folder_prefix test --scheme paillier"
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 5 --nb_patients 1 --nb_vitals 512 --key_length 4096,8192 --nb_operations 32 --folder_prefix scheme --scheme bfv"
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 5 --nb_patients 1 --nb_vitals 512 --key_length 4096,8192 --nb_operations 32 --folder_prefix scheme --scheme ckks"
+
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 10 --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix comp2 --scheme bfv,ckks"
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 1O --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix comp2 --scheme "
+
 
 ### Client Server
 python code/he_benchmark.py --client vm1 $benchmark_config

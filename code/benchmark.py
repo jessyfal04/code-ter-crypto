@@ -10,7 +10,7 @@ from datetime import datetime
 from colorama import Fore
 import pyRAPL.pyRAPL
 
-STEP_SECOND = 0.5  # Sampling interval in seconds
+STEP_SECOND = 0.1  # Sampling interval in seconds
 NUM_POINTS = 20    # Number of points for interpolation
 PLOT_PRINT = False  # Set to True to show plots
 BATTERY = False     # Set to True to enable battery monitoring

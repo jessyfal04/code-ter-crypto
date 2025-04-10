@@ -1,5 +1,9 @@
 tenseal 
-- Garder trace de Coefficient modulus sizes	Saved keys	Context serialized size
+- Garder trace de 
+    - Coefficient modulus sizes [coeff_mod_bit_sizes: The coefficient modulus sizes, here [60, 40, 40, 60]. This means that the coefficient modulus will contain 4 primes of 60 bits, 40 bits, 40 bits, and 60 bits.]	
+    - Saved keys
+    - Context serialized size
+
 - Saved keys : ??? all / Secret key / Galois keys / Relin keys
 
 - Context serialized size, new metrics ??
