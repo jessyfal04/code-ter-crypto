@@ -48,7 +48,7 @@ benchmark_config="--operation add_encrypted --port 12345 --nb_runs 2 --nb_patien
 benchmark_config="--operation add_encrypted --port 12345 --nb_runs 5 --nb_patients 1 --nb_vitals 512 --key_length 4096,8192 --nb_operations 32 --folder_prefix scheme --scheme ckks"
 
 benchmark_config="--operation add_encrypted --port 12345 --nb_runs 10 --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix comp2 --scheme bfv,ckks"
-benchmark_config="--operation add_encrypted --port 12345 --nb_runs 1O --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix comp2 --scheme "
+benchmark_config="--operation add_encrypted --port 12345 --nb_runs 1 --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix 3scheme --scheme tfhe"
 
 
 ### Client Server

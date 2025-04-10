@@ -14,17 +14,11 @@ inputset = [(i, j) for i in range(10) for j in range(10)]
 # Compile the function
 circuit = compiler.compile(inputset)
 
-
-
 # Step 4: Generate the necessary keys
-circuit.keygen()
-
-# Access the secret key
-secret_key = circuit.secret_key
+client_key = circuit.keygen()
 
 # Access the evaluation keys
-evaluation_keys = circuit.evaluation_keys
-
+evaluation_keys = client_key.get_evaluation_key()
 
 # Step 5: Encrypt the input values
 x = 5

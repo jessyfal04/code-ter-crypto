@@ -8,6 +8,7 @@ from colorama import Fore
 import itertools
 from abc import ABC, abstractmethod
 import base64
+import os
 
 #NOTE HE LIBRARY
 from phe import paillier
@@ -37,17 +38,17 @@ class HEScheme(ABC):
     """Abstract base class for homomorphic encryption schemes"""
     
     @abstractmethod
-    def generate_keypair(self, key_length):
-        """Generate a keypair for the scheme"""
+    def generate_contexts(self, key_length, operation=None):
+        """Generate public and private contexts for the scheme"""
         pass
     
     @abstractmethod
-    def encrypt(self, public_key, message):
+    def encrypt(self, public_context, message):
         """Encrypt a message"""
         pass
     
     @abstractmethod
-    def decrypt(self, private_key, encrypted_message):
+    def decrypt(self, private_context, encrypted_message):
         """Decrypt an encrypted message"""
         pass
     
@@ -57,7 +58,7 @@ class HEScheme(ABC):
         pass
     
     @abstractmethod
-    def deserialize_encrypted(self, serialized_data, public_key):
+    def deserialize_encrypted(self, serialized_data, public_context):
         """Deserialize encrypted data"""
         pass
     
@@ -75,37 +76,37 @@ class HEScheme(ABC):
     def multiply_scalar(self, enc, scalar):
         """Multiply an encrypted number by a scalar"""
         pass
-    
+
     @abstractmethod
-    def divide_scalar(self, enc, scalar):
-        """Divide an encrypted number by a scalar"""
+    def multiply_encrypted(self, enc1, enc2):
+        """Multiply two encrypted numbers"""
         pass
     
     @abstractmethod
-    def serialize_public_key(self, public_key):
-        """Serialize public key"""
+    def serialize_public_context(self, public_context):
+        """Serialize public context"""
         pass
     
     @abstractmethod
-    def deserialize_public_key(self, serialized_key):
-        """Deserialize public key"""
+    def deserialize_public_context(self, serialized_context):
+        """Deserialize public context"""
         pass
 
 class PaillierScheme(HEScheme):
     """Paillier homomorphic encryption scheme implementation"""
     
-    def generate_keypair(self, key_length):
+    def generate_contexts(self, key_length, operation=None):
         """Generate a Paillier keypair with optimized parameters"""
         print(f"> Generating Keypair of length {key_length} bits")
         return paillier.generate_paillier_keypair(n_length=key_length)
     
-    def encrypt(self, public_key, message):
+    def encrypt(self, public_context, message):
         """Encrypt a message using Paillier"""
-        return public_key.encrypt(message)
+        return public_context.encrypt(message)
     
-    def decrypt(self, private_key, encrypted_message):
+    def decrypt(self, private_context, encrypted_message):
         """Decrypt an encrypted message using Paillier"""
-        return private_key.decrypt(encrypted_message)
+        return private_context.decrypt(encrypted_message)
     
     def serialize_encrypted(self, encrypted_number_list):
         """Serialize encrypted data for Paillier"""
@@ -117,12 +118,12 @@ class PaillierScheme(HEScheme):
         }
         return json.dumps(enc_dict)
     
-    def deserialize_encrypted(self, serialized_data, public_key):
+    def deserialize_encrypted(self, serialized_data, public_context):
         """Deserialize encrypted data for Paillier"""
         print("> Deserializing encrypted data")
         data_dict = json.loads(serialized_data)
         return [
-            paillier.EncryptedNumber(public_key, int(ctxt), int(exp))
+            paillier.EncryptedNumber(public_context, int(ctxt), int(exp))
             for (ctxt, exp) in data_dict['values']
         ]
     
@@ -138,43 +139,41 @@ class PaillierScheme(HEScheme):
         """Multiply an encrypted number by a scalar using Paillier"""
         return enc * scalar
     
-    def divide_scalar(self, enc, scalar):
-        """Divide an encrypted number by a scalar using Paillier"""
-        if scalar == 0:
-            raise ValueError("Division by zero is not allowed.")
-        return enc * (1 / scalar)
+    def multiply_encrypted(self, enc1, enc2):
+        """Multiply two encrypted numbers using Paillier"""
+        raise NotImplementedError("Paillier does not support multiplication of encrypted numbers")
     
-    def serialize_public_key(self, public_key):
+    def serialize_public_context(self, public_context):
         """Serialize Paillier public key"""
-        return {'public_key': {'g': public_key.g, 'n': public_key.n}}
+        return {'public_key': {'g': public_context.g, 'n': public_context.n}}
     
-    def deserialize_public_key(self, serialized_key):
+    def deserialize_public_context(self, serialized_context):
         """Deserialize Paillier public key"""
-        public_key_dict = json.loads(serialized_key)['public_key']
-        return paillier.PaillierPublicKey(n=int(public_key_dict['n']))
+        public_context_dict = json.loads(serialized_context)['public_key']
+        return paillier.PaillierPublicKey(n=int(public_context_dict['n']))
 
 class BFVScheme(HEScheme):
     """BFV homomorphic encryption scheme implementation using TenSEAL"""
     
-    def generate_keypair(self, key_length):
+    def generate_contexts(self, key_length, operation=None):
         """Generate a BFV keypair with optimized parameters"""
         print(f"> Generating Keypair of length {key_length} bits")
         context = ts.context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=key_length, plain_modulus=1032193)
         context.generate_galois_keys()
-        secret_key = context.secret_key()
+        private_context = context.secret_key()
         context.make_context_public()
-        return context, secret_key
+        return context, private_context
     
-    def encrypt(self, public_key, message):
+    def encrypt(self, public_context, message):
         """Encrypt a message using BFV"""
         if isinstance(message, list):
-            return ts.bfv_vector(public_key, message)
+            return ts.bfv_vector(public_context, message)
         else:
-            return ts.bfv_vector(public_key, [message])
+            return ts.bfv_vector(public_context, [message])
     
-    def decrypt(self, private_key, encrypted_message):
+    def decrypt(self, private_context, encrypted_message):
         """Decrypt an encrypted message using BFV"""
-        return encrypted_message.decrypt(private_key)
+        return encrypted_message.decrypt(private_context)
     
     def serialize_encrypted(self, encrypted_number_list):
         """Serialize encrypted data for BFV"""
@@ -186,12 +185,12 @@ class BFVScheme(HEScheme):
             serialized_list.append(base64.b64encode(serialized).decode('utf-8'))
         return json.dumps(serialized_list)
     
-    def deserialize_encrypted(self, serialized_data, public_key):
+    def deserialize_encrypted(self, serialized_data, public_context):
         """Deserialize encrypted data for BFV"""
         print("> Deserializing encrypted data")
         # Deserialize each encrypted vector from base64
         serialized_list = json.loads(serialized_data)
-        return [ts.bfv_vector_from(public_key, base64.b64decode(serialized)) for serialized in serialized_list]
+        return [ts.bfv_vector_from(public_context, base64.b64decode(serialized)) for serialized in serialized_list]
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using BFV"""
@@ -209,47 +208,43 @@ class BFVScheme(HEScheme):
         encrypted_scalar = ts.bfv_vector(enc.context(), scalar_vector)
         return enc * encrypted_scalar
     
-    def divide_scalar(self, enc, scalar):
-        """Divide an encrypted number by a scalar using BFV"""
-        if scalar == 0:
-            raise ValueError("Division by zero is not allowed.")
-        scalar_vector = [1/scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.bfv_vector(enc.context(), scalar_vector)
-        return enc * encrypted_scalar
+    def multiply_encrypted(self, enc1, enc2):
+        """Multiply two encrypted numbers using BFV"""
+        return enc1 * enc2
     
-    def serialize_public_key(self, public_key):
-        """Serialize BFV public key (context)"""
-        serialized = public_key.serialize()
+    def serialize_public_context(self, public_context):
+        """Serialize BFV public context"""
+        serialized = public_context.serialize()
         return base64.b64encode(serialized).decode('utf-8')
     
-    def deserialize_public_key(self, serialized_key):
-        """Deserialize BFV public key (context)"""
-        serialized_bytes = base64.b64decode(serialized_key)
+    def deserialize_public_context(self, serialized_context):
+        """Deserialize BFV public context"""
+        serialized_bytes = base64.b64decode(serialized_context)
         return ts.context_from(serialized_bytes)
 
 class CKKSScheme(HEScheme):
     """CKKS homomorphic encryption scheme implementation using TenSEAL"""
     
-    def generate_keypair(self, key_length):
+    def generate_contexts(self, key_length, operation=None):
         """Generate a CKKS keypair with optimized parameters"""
         print(f"> Generating Keypair of length {key_length} bits")
         context = ts.context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=key_length)
         context.global_scale = pow(2, 40)  # Set appropriate scale for CKKS
         context.generate_galois_keys()
-        secret_key = context.secret_key()
+        private_context = context.secret_key()
         context.make_context_public()
-        return context, secret_key
+        return context, private_context
     
-    def encrypt(self, public_key, message):
+    def encrypt(self, public_context, message):
         """Encrypt a message using CKKS"""
         if isinstance(message, list):
-            return ts.ckks_vector(public_key, message)
+            return ts.ckks_vector(public_context, message)
         else:
-            return ts.ckks_vector(public_key, [message])
+            return ts.ckks_vector(public_context, [message])
     
-    def decrypt(self, private_key, encrypted_message):
+    def decrypt(self, private_context, encrypted_message):
         """Decrypt an encrypted message using CKKS"""
-        return encrypted_message.decrypt(private_key)
+        return encrypted_message.decrypt(private_context)
     
     def serialize_encrypted(self, encrypted_number_list):
         """Serialize encrypted data for CKKS"""
@@ -261,12 +256,12 @@ class CKKSScheme(HEScheme):
             serialized_list.append(base64.b64encode(serialized).decode('utf-8'))
         return json.dumps(serialized_list)
     
-    def deserialize_encrypted(self, serialized_data, public_key):
+    def deserialize_encrypted(self, serialized_data, public_context):
         """Deserialize encrypted data for CKKS"""
         print("> Deserializing encrypted data")
         # Deserialize each encrypted vector from base64
         serialized_list = json.loads(serialized_data)
-        return [ts.ckks_vector_from(public_key, base64.b64decode(serialized)) for serialized in serialized_list]
+        return [ts.ckks_vector_from(public_context, base64.b64decode(serialized)) for serialized in serialized_list]
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using CKKS"""
@@ -284,29 +279,144 @@ class CKKSScheme(HEScheme):
         encrypted_scalar = ts.ckks_vector(enc.context(), scalar_vector)
         return enc * encrypted_scalar
     
-    def divide_scalar(self, enc, scalar):
-        """Divide an encrypted number by a scalar using CKKS"""
-        if scalar == 0:
-            raise ValueError("Division by zero is not allowed.")
-        scalar_vector = [1/scalar] * len(enc.decrypt())
-        encrypted_scalar = ts.ckks_vector(enc.context(), scalar_vector)
-        return enc * encrypted_scalar
+    def multiply_encrypted(self, enc1, enc2):
+        """Multiply two encrypted numbers using CKKS"""
+        return enc1 * enc2
     
-    def serialize_public_key(self, public_key):
-        """Serialize CKKS public key (context)"""
-        serialized = public_key.serialize()
+    def serialize_public_context(self, public_context):
+        """Serialize CKKS public context"""
+        serialized = public_context.serialize()
         return base64.b64encode(serialized).decode('utf-8')
     
-    def deserialize_public_key(self, serialized_key):
-        """Deserialize CKKS public key (context)"""
-        serialized_bytes = base64.b64decode(serialized_key)
+    def deserialize_public_context(self, serialized_context):
+        """Deserialize CKKS public context"""
+        serialized_bytes = base64.b64decode(serialized_context)
         return ts.context_from(serialized_bytes)
+
+class TFHEScheme(HEScheme):
+    """TFHE homomorphic encryption scheme implementation using Concrete"""
+    
+    def generate_contexts(self, key_length, operation=None):
+        """Generate TFHE circuit and keys"""
+        print(f"> Generating TFHE circuit for operation {operation}")
+        
+        # Define the function to compile based on operation
+        if operation == "add_encrypted":
+            def functionToCompile(x, y):
+                return x + y
+            input_types = {"x": "encrypted", "y": "encrypted"}
+        elif operation == 'add_scalar':
+            def functionToCompile(x, s):
+                return x + s
+            input_types = {"x": "encrypted", "s": "clear"}
+        elif operation == 'mul_encrypted':
+            def functionToCompile(x, y):
+                return x * y
+            input_types = {"x": "encrypted", "y": "encrypted"}
+        elif operation == 'mul_scalar':
+            def functionToCompile(x, s):
+                return x * s
+            input_types = {"x": "encrypted", "s": "clear"}
+        else:
+            raise ValueError(f"Unsupported operation: {operation}")
+        
+        # Compile the circuit
+        compiler = fhe.Compiler(functionToCompile, input_types)
+        inputset = [(i, j) for i in range(10) for j in range(128)]
+        circuit = compiler.compile(inputset)
+        circuit.keygen()
+        
+        # Generate contexts
+        private_context = {"circuit_client": circuit.client}
+        public_context = {
+            "circuit_server": circuit.server,
+            "evaluation_keys": circuit.client.evaluation_keys
+        }
+        
+        return public_context, private_context
+    
+    def encrypt(self, public_context, message):
+        """Encrypt a message using TFHE"""
+        raise NotImplementedError()
+    
+    def decrypt(self, private_context, encrypted_message):
+        """Decrypt an encrypted message using TFHE"""
+        return private_context["circuit_client"].decrypt(encrypted_message)
+    
+    def serialize_encrypted(self, encrypted_data):
+        """Serialize encrypted data for TFHE"""
+        print("> Serializing encrypted data")
+        raise NotImplementedError()
+    
+    def deserialize_encrypted(self, serialized_data, public_context):
+        """Deserialize encrypted data for TFHE"""
+        print("> Deserializing encrypted data")
+        serialized_list = json.loads(serialized_data)
+        return tuple([fhe.Value.deserialize(base64.b64decode(ei)) for ei in serialized_list])
+    
+    def add_scalar(self, enc, scalar):
+        """Add a scalar to an encrypted number using TFHE"""
+        raise NotImplementedError("This operation is handled by the circuit")
+    
+    def add_encrypted(self, enc1, enc2):
+        """Add two encrypted numbers using TFHE"""
+        # This operation is handled by the circuit
+        raise NotImplementedError("This operation is handled by the circuit")
+    
+    def multiply_scalar(self, enc, scalar):
+        """Multiply an encrypted number by a scalar using TFHE"""
+        # This operation is handled by the circuit
+        raise NotImplementedError("This operation is handled by the circuit")
+    
+    def multiply_encrypted(self, enc1, enc2):
+        """Multiply two encrypted numbers using TFHE"""
+        # This operation is handled by the circuit
+        raise NotImplementedError("This operation is handled by the circuit")
+    
+    def serialize_public_context(self, public_context):
+        """Serialize TFHE public context"""
+        # Save server circuit to file
+        public_context["circuit_server"].save("server.zip")
+        with open("server.zip", "rb") as f:
+            circuit_server_bytes = base64.b64encode(f.read()).decode('utf-8')
+        os.remove("server.zip")
+        
+        # Serialize evaluation keys to base64
+        evaluation_keys_bytes = public_context["evaluation_keys"].serialize()
+        evaluation_keys_base64 = base64.b64encode(evaluation_keys_bytes).decode('utf-8')
+        
+        return {
+            "circuit_server": circuit_server_bytes,
+            "evaluation_keys": evaluation_keys_base64
+        }
+    
+    def deserialize_public_context(self, serialized_context):
+        """Deserialize TFHE public context"""
+        # Load from json
+        serialized_context = json.loads(serialized_context)
+        # Load server circuit from base64
+        server_circuit_bytes = base64.b64decode(serialized_context["circuit_server"])
+        with open("server.zip", "wb") as f:
+            f.write(server_circuit_bytes)
+        
+        circuit_server = fhe.Server.load("server.zip")
+        os.remove("server.zip")
+        
+        # Deserialize evaluation keys from base64
+        evaluation_keys_bytes = base64.b64decode(serialized_context["evaluation_keys"])
+        evaluation_keys = fhe.EvaluationKeys.deserialize(evaluation_keys_bytes)
+        
+        return {
+            "circuit_server": circuit_server,
+            "evaluation_keys": evaluation_keys
+        }
 
 # Dictionary of available schemes
 SCHEMES = {
     'paillier': PaillierScheme(),
     'bfv': BFVScheme(),
-    'ckks': CKKSScheme()
+    'ckks': CKKSScheme(),
+    'tfhe': TFHEScheme()
 }
 #!SECTION - END HE SCHEMES
 
@@ -357,87 +467,73 @@ def receive_data(sock):
     return data
 #!SECTION - END NETWORKING
 
-#SECTION - ENCRYPTION
-#ANCHOR - KEY EXCHANGE
-def generate_keypair(scheme, key_length):
-    """Generate a keypair with optimized parameters"""
-    return scheme.generate_keypair(key_length)
-
-#ANCHOR - ENCRYPT
-def encrypt_messages(scheme, public_key, messages):
-    """Encrypt a list of messages efficiently"""
-    print(f"> Encrypting {len(messages)} value(s)")
-    return [scheme.encrypt(public_key, m) for m in messages]
-
-#ANCHOR - DECRYPT
-def decrypt_messages(scheme, private_key, encrypted_messages):
-    """Decrypt a list of messages efficiently"""
-    print(f"> Decrypting {len(encrypted_messages)} value(s)")
-    return [scheme.decrypt(private_key, m) for m in encrypted_messages]
-#!SECTION - END ENCRYPTION
-
-#SECTION - SERIALIZATION
-#ANCHOR - SERIALIZE
-def serialize_encrypted_data(scheme, encrypted_number_list):
-    """Serialize encrypted data efficiently"""
-    return scheme.serialize_encrypted(encrypted_number_list)
-
-#ANCHOR - DESERIALIZE
-def deserialize_encrypted_data(scheme, serialized_data, public_key):
-    """Deserialize encrypted data efficiently"""
-    return scheme.deserialize_encrypted(serialized_data, public_key)
-#!SECTION - END SERIALIZATION
-
 #SECTION - HOMOMORPHIC OPERATIONS
-#ANCHOR - ADD SCALAR
-def add_encrypted_scalar(scheme, enc, scalar):
-    """Add a scalar to an encrypted number"""
-    return scheme.add_scalar(enc, scalar)
-
-#ANCHOR - ADD ENCRYPTED
-def add_encrypted_numbers(scheme, enc1, enc2):
-    """Add two encrypted numbers"""
-    return scheme.add_encrypted(enc1, enc2)
-
-#ANCHOR - MULTIPLY SCALAR
-def multiply_encrypted_by_scalar(scheme, enc, scalar):
-    """Multiply an encrypted number by a scalar"""
-    return scheme.multiply_scalar(enc, scalar)
-
-#ANCHOR - DIVIDE SCALAR
-def divide_encrypted_by_scalar(scheme, enc, scalar):
-    """Divide an encrypted number by a scalar"""
-    return scheme.divide_scalar(enc, scalar)
-
 #ANCHOR - PERFORM OPERATION
-def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, data_list2=None, nb_operations=1):
-    """Perform homomorphic operations efficiently"""
-    print(f"> Performing {nb_operations} Homomorphic Operation(s): {operation}")
-    
+def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, data_list2=None, nb_operations=1, public_context=None):
+    """Perform a homomorphic operation on encrypted data"""
+    print(f"> Performing homomorphic operation {operation}, {nb_operations} times")
     result = data_list
-    for i in range(nb_operations):
-        if operation == 'add':
-            result = [add_encrypted_scalar(scheme, m, scalar) for m in result]
-        elif operation == 'mul':
-            result = [multiply_encrypted_by_scalar(scheme, m, scalar) for m in result]
-        elif operation == 'div':
-            result = [divide_encrypted_by_scalar(scheme, m, scalar) for m in result]
-        elif operation == 'add_encrypted':
-            if len(result) != len(data_list2):
-                raise ValueError("Both lists must have the same length.")
-            result = [add_encrypted_numbers(scheme, m1, m2) for m1, m2 in zip(result, data_list2)]
-        else:
-            raise ValueError(f"Unsupported operation: {operation}")
+
+    # Special handling for TFHE scheme
+    if isinstance(scheme, TFHEScheme):
+        for _ in range(nb_operations):
+            if operation == 'add_scalar':
+                result = [
+                    public_context["circuit_server"].run(
+                        enc,
+                        evaluation_keys=public_context["evaluation_keys"]
+                    )
+                    for enc in data_list
+                ]
+            elif operation == 'add_encrypted':
+                result = [
+                    public_context["circuit_server"].run(
+                        enc,
+                        evaluation_keys=public_context["evaluation_keys"]
+                    )
+                    for enc in data_list
+                ]
+            elif operation == 'mul_scalar':
+                result = [
+                    public_context["circuit_server"].run(
+                        enc,
+                        evaluation_keys=public_context["evaluation_keys"]
+                    )
+                    for enc in data_list
+                ]
+            elif operation == 'mul_encrypted':
+                result = [
+                    public_context["circuit_server"].run(
+                        enc,
+                        evaluation_keys=public_context["evaluation_keys"]
+                    )
+                    for enc in data_list
+                ]
+            else:
+                raise ValueError(f"Unsupported operation: {operation}")
+    else:
+        # Original implementation for other schemes
+        for _ in range(nb_operations):
+            if operation == 'add_scalar':
+                result = [scheme.add_scalar(m, scalar) for m in result]
+            elif operation == 'add_encrypted':
+                result = [scheme.add_encrypted(m, data_list2[i]) for i, m in enumerate(result)]
+            elif operation == 'mul_scalar':
+                result = [scheme.multiply_scalar(m, scalar) for m in result]
+            elif operation == 'mul_encrypted':
+                result = [scheme.multiply_encrypted(m, data_list2[i]) for i, m in enumerate(result)]
+            else:
+                raise ValueError(f"Unsupported operation: {operation}")
     
     return result
 #!SECTION - END HOMOMORPHIC OPERATIONS
 
 #SECTION - KEY EXCHANGE
 #ANCHOR - SEND KEY
-def send_public_key(sock, scheme, public_key):
+def send_public_context(sock, scheme, public_context):
     """Send public key efficiently"""
     print("> Sending Public Key to Server")
-    key_data = scheme.serialize_public_key(public_key)
+    key_data = scheme.serialize_public_context(public_context)
     send_data(sock, json.dumps(key_data))
     
     # Wait for server completion
@@ -446,16 +542,16 @@ def send_public_key(sock, scheme, public_key):
         raise ValueError("Unexpected response from server")
 
 #ANCHOR - RECEIVE KEY
-def receive_public_key(sock, scheme):
+def receive_public_context(sock, scheme):
     """Receive public key efficiently"""
     print("> Receiving Public Key from Client")
     data = receive_data(sock)
-    public_key = scheme.deserialize_public_key(data)
+    public_context = scheme.deserialize_public_context(data)
     
     # Signal completion to client
     print("> Signaling completion to client...")
     send_data(sock, "finished")
-    return public_key
+    return public_context
 #!SECTION - END KEY EXCHANGE
 
 #SECTION - MEDICAL DATA
@@ -530,7 +626,7 @@ def measure_latency_server(sock):
 
 #SECTION - CLIENT WORKFLOW
 #ANCHOR - RUN OPERATIONS
-def run_client_operations(sock, scheme, operation, public_key, private_key, config):
+def run_client_operations(sock, scheme, operation, public_context, private_context, config):
     """Run client operations efficiently"""
     measure_latency_client(sock)
 
@@ -544,20 +640,29 @@ def run_client_operations(sock, scheme, operation, public_key, private_key, conf
 
     # Encrypt data
     benchmark.encrypt_start_time = time.perf_counter()
-    encrypted_data = encrypt_messages(scheme, public_key, flattened_data)
+    if isinstance(scheme, TFHEScheme):
+        print("> Encrypting and Serializing data")
+        # For TFHE, we need to encrypt pairs of data together
+        data2 = flattened_data if "encrypted" in operation else [scalar] * len(flattened_data)
+        encrypted_data = json.dumps([
+            tuple([base64.b64encode(ei.serialize()).decode('utf-8') for ei in private_context["circuit_client"].encrypt(d1, d2)])
+            for d1, d2 in zip(flattened_data, data2)
+        ])
+    else:
+        encrypted_data = [scheme.encrypt(public_context, m) for m in flattened_data]
     print(f"> Computing {operation} on {nb_patients} patients (each with {nb_vitals} vitals)")
 
     # Prepare data for computation
     data_to_compute = {
         'operation': operation,
         'scalar': scalar,
-        'serialized_data': serialize_encrypted_data(scheme, encrypted_data)
+        'data': scheme.serialize_encrypted(encrypted_data) if not isinstance(scheme, TFHEScheme) else encrypted_data
     }
     benchmark.encrypt_end_time = time.perf_counter()
 
     # Add second dataset for add_encrypted operation
-    if operation == 'add_encrypted':
-        data_to_compute['serialized_data2'] = data_to_compute['serialized_data']
+    if "encrypted" in operation and not isinstance(scheme, TFHEScheme):
+        data_to_compute['data2'] = data_to_compute['data']
 
     # Send data and receive result
     print("> Sending data to server for computation")
@@ -568,16 +673,19 @@ def run_client_operations(sock, scheme, operation, public_key, private_key, conf
 
     # Process result
     benchmark.decrypt_start_time = time.perf_counter()
-    encrypted_result = deserialize_encrypted_data(scheme, serialized_data, public_key)
-    decrypted_result = decrypt_messages(scheme, private_key, encrypted_result)
+    encrypted_result = scheme.deserialize_encrypted(serialized_data, public_context)
+    decrypted_result = [scheme.decrypt(private_context, m) for m in encrypted_result]
     benchmark.decrypt_end_time = time.perf_counter()
+
+    # print(f"Data: {flattened_data}")
+    # print(f"Result: {decrypted_result}")
 
     # Signal completion to server
     print("> Signaling completion to server...")
     send_data(sock, "finished")
 
 #ANCHOR - CLIENT
-def client(sock, scheme, config, public_key, private_key):
+def client(sock, scheme, config, public_context, private_context):
     """Client main function"""
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['nb_vitals']}bits"
     annotation_str = (
@@ -596,12 +704,12 @@ def client(sock, scheme, config, public_key, private_key):
         annotation=annotation_str
     )(run_client_operations)
 
-    benchmarked_fn(sock, scheme, config['operation'], public_key, private_key, config)
+    benchmarked_fn(sock, scheme, config['operation'], public_context, private_context, config)
 #!SECTION - END CLIENT WORKFLOW
 
 #SECTION - SERVER WORKFLOW
 #ANCHOR - RUN OPERATIONS
-def run_server_operations(sock, scheme, config, public_key):
+def run_server_operations(sock, scheme, config, public_context):
     """Run server operations efficiently"""
     measure_latency_server(sock)
 
@@ -609,25 +717,39 @@ def run_server_operations(sock, scheme, config, public_key):
     data_to_compute = json.loads(receive_data(sock))
     operation = data_to_compute['operation']
     scalar = data_to_compute['scalar']
-
+    
+    data_list = None
+    data_list2 = None
     # Process input data
-    enc_msgs = deserialize_encrypted_data(scheme, data_to_compute['serialized_data'], public_key)
-    enc_msgs2 = deserialize_encrypted_data(scheme, data_to_compute['serialized_data2'], public_key) if operation == 'add_encrypted' else None
+    if isinstance(scheme, TFHEScheme):
+        data_list = [
+            tuple([fhe.Value.deserialize(base64.b64decode(ei)) for ei in encrypted_data])
+            for encrypted_data in json.loads(data_to_compute['data'])
+        ]
+    else:
+        data_list = scheme.deserialize_encrypted(data_to_compute['data'], public_context)
+        data_list2 = scheme.deserialize_encrypted(data_to_compute['data2'], public_context) if "encrypted" in operation else None
 
     # Perform operations
     benchmark.operation_start_time = time.perf_counter()
     result = perform_homomorphic_operation(
         scheme,
         operation, 
-        enc_msgs, 
+        data_list, 
         scalar=scalar, 
-        data_list2=enc_msgs2,
-        nb_operations=config['nb_operations']
+        data_list2=data_list2,
+        nb_operations=config['nb_operations'],
+        public_context=public_context
     )
     benchmark.operation_end_time = time.perf_counter()
 
     # Send result
-    serialized_result = serialize_encrypted_data(scheme, result)
+    if isinstance(scheme, TFHEScheme):
+        serialized_result = json.dumps(
+            tuple([base64.b64encode(er.serialize()).decode('utf-8') for er in result])
+        )
+    else:
+        serialized_result = scheme.serialize_encrypted(result)
     print("> Sending computation result back to client")
     send_data(sock, serialized_result)
 
@@ -637,7 +759,7 @@ def run_server_operations(sock, scheme, config, public_key):
         raise ValueError("Unexpected response from client")
 
 #ANCHOR - SERVER
-def server(sock, scheme, config, public_key):
+def server(sock, scheme, config, public_context):
     """Server main function"""
     folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['nb_vitals']}bits"
     annotation_str = (
@@ -656,7 +778,7 @@ def server(sock, scheme, config, public_key):
         annotation=annotation_str
     )(run_server_operations)
 
-    benchmarked_fn(sock, scheme, config, public_key)
+    benchmarked_fn(sock, scheme, config, public_context)
 #!SECTION - END SERVER WORKFLOW
 
 #SECTION - MAIN
@@ -665,8 +787,8 @@ if __name__ == '__main__':
     parser.add_argument("--server", action='store_true', help="Run as server")
     parser.add_argument("--client", type=str, help="Run as client, specify server IP")
     parser.add_argument("--port", type=int, default=12345, help="Port to use for communication (default: 12345)")
-    parser.add_argument("--operation", type=str, default="add",
-                        help="Operation(s): 'add', 'add_encrypted', 'mul', 'div', 'all' or comma-separated list.")
+    parser.add_argument("--operation", type=str, default="all",
+                        help="Operation(s): 'add', 'add_encrypted', 'mul', 'all' or comma-separated list.")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
     parser.add_argument("--nb_vitals", type=str, default="1024",
                         help="Number of vitals per patient (integer or comma-separated list of values to test)")
@@ -694,11 +816,8 @@ if __name__ == '__main__':
             raise ValueError(f"Unsupported scheme: {scheme_name}. Available schemes: {', '.join(SCHEMES.keys())}")
 
     # Parse operations
-    operations = (
-        ['add', 'add_encrypted', 'mul', 'div'] if args.operation == 'all'
-        else [x.strip() for x in args.operation.split(',')] if ',' in args.operation
-        else [args.operation]
-    )
+    operations = args.operation.split(',') if ',' in args.operation else \
+                ['add_scalar', 'add_encrypted', 'mul_scalar', 'mul_encrypted'] if args.operation == 'all' else [args.operation]
 
     # Parse number of vitals and patients
     nb_vitals_list = (
@@ -729,7 +848,7 @@ if __name__ == '__main__':
             for scheme_name in schemes_list:
                 scheme = SCHEMES[scheme_name]
                 for key_length in key_length_list:
-                    public_key = receive_public_key(sock, scheme)
+                    public_context = receive_public_context(sock, scheme)
 
                     # Single loop for all combinations
                     for nb_patients, nb_vitals, operation in itertools.product(nb_patients_list, nb_vitals_list, operations):
@@ -752,7 +871,7 @@ if __name__ == '__main__':
                             print(f"  {k}: {v}")
                         print(Fore.RESET)
 
-                        server(sock, scheme, config, public_key)
+                        server(sock, scheme, config, public_context)
 
             sock.close()
         finally:
@@ -768,31 +887,36 @@ if __name__ == '__main__':
             for scheme_name in schemes_list:
                 scheme = SCHEMES[scheme_name]
                 for key_length in key_length_list:
-                    public_key, private_key = generate_keypair(scheme, key_length)
-                    send_public_key(client_sock, scheme, public_key)
 
-                    # Single loop for all combinations
-                    for nb_patients, nb_vitals, operation in itertools.product(nb_patients_list, nb_vitals_list, operations):
-                        
-                        reset_benchmark()
-                        config = {
-                            'nb_runs': args.nb_runs,
-                            'nb_vitals': nb_vitals,
-                            'nb_patients': nb_patients,
-                            'key_length': key_length,
-                            'operation': operation,
-                            'nb_operations': args.nb_operations,
-                            'folder_prefix': args.folder_prefix,
-                            'scheme': scheme_name
-                        }
+                    bool_contextGenerated = False
+                    for operation in operations:
+                        if not bool_contextGenerated or scheme_name == "tfhe":
+                            public_context, private_context = scheme.generate_contexts(key_length, operation=operation)
+                            send_public_context(client_sock, scheme, public_context)
+                            bool_contextGenerated = True
 
-                        print(Fore.YELLOW)
-                        print("Configuration:")
-                        for k, v in config.items():
-                            print(f"  {k}: {v}")
-                        print(Fore.RESET)
+                        # Single loop for all combinations
+                        for nb_patients, nb_vitals in itertools.product(nb_patients_list, nb_vitals_list):
+                            
+                            reset_benchmark()
+                            config = {
+                                'nb_runs': args.nb_runs,
+                                'nb_vitals': nb_vitals,
+                                'nb_patients': nb_patients,
+                                'key_length': key_length,
+                                'operation': operation,
+                                'nb_operations': args.nb_operations,
+                                'folder_prefix': args.folder_prefix,
+                                'scheme': scheme_name
+                            }
 
-                        client(client_sock, scheme, config, public_key, private_key)
+                            print(Fore.YELLOW)
+                            print("Configuration:")
+                            for k, v in config.items():
+                                print(f"  {k}: {v}")
+                            print(Fore.RESET)
+
+                            client(client_sock, scheme, config, public_context, private_context)
 
         finally:
             client_sock.close()
