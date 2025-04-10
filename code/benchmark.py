@@ -20,6 +20,15 @@ if BATTERY:
 current_network_bytes_sent = 0     # Global variable for network bytes sent
 current_network_bytes_received = 0   # Global variable for network bytes received
 current_network_latency = 0         # Global variable for network latency
+
+# Global variables for phase timestamps
+encrypt_start_time = 0     # Start time of encryption phase
+encrypt_end_time = 0       # End time of encryption phase
+operation_start_time = 0   # Start time of operation phase
+operation_end_time = 0     # End time of operation phase
+decrypt_start_time = 0     # Start time of decryption phase
+decrypt_end_time = 0       # End time of decryption phase
+
 current_run = 0
 
 # --- Metrics Classes ---
@@ -119,16 +128,156 @@ class MetricsAggregated:
             avg_series = np.zeros_like(x_perc)
         return x_perc, avg_series
 
+class PhaseMetrics:
+    """
+    Stores phase timing information for a single run.
+    """
+    def __init__(self):
+        self.encrypt_duration = 0
+        self.operation_duration = 0
+        self.decrypt_duration = 0
+        self.encrypt_start = 0
+        self.encrypt_end = 0
+        self.operation_start = 0
+        self.operation_end = 0
+        self.decrypt_start = 0
+        self.decrypt_end = 0
+        self.total_duration = 0
+
+    def update_from_globals(self, run_start_time, run_end_time):
+        global encrypt_start_time, encrypt_end_time, operation_start_time, operation_end_time, decrypt_start_time, decrypt_end_time
+
+        # Convert absolute timestamps to relative timestamps from run start
+        self.encrypt_start = encrypt_start_time - run_start_time if encrypt_start_time != 0 else 0
+        self.encrypt_end = encrypt_end_time - run_start_time if encrypt_end_time != 0 else 0
+        self.operation_start = operation_start_time - run_start_time if operation_start_time != 0 else 0
+        self.operation_end = operation_end_time - run_start_time if operation_end_time != 0 else 0
+        self.decrypt_start = decrypt_start_time - run_start_time if decrypt_start_time != 0 else 0
+        self.decrypt_end = decrypt_end_time - run_start_time if decrypt_end_time != 0 else 0
+        self.total_duration = run_end_time - run_start_time
+        
+        if self.encrypt_start != 0 and self.encrypt_end != 0:
+            self.encrypt_duration = self.encrypt_end - self.encrypt_start
+        if self.operation_start != 0 and self.operation_end != 0:
+            self.operation_duration = self.operation_end - self.operation_start
+        if self.decrypt_start != 0 and self.decrypt_end != 0:
+            self.decrypt_duration = self.decrypt_end - self.decrypt_start
+
+    def get_percentage_timestamps(self):
+        """Convert timestamps to percentages of total duration"""
+        if self.total_duration == 0:
+            return self
+        
+        result = PhaseMetrics()
+        result.total_duration = self.total_duration
+        
+        if self.encrypt_start != 0:
+            result.encrypt_start = (self.encrypt_start / self.total_duration) * 100
+        if self.encrypt_end != 0:
+            result.encrypt_end = (self.encrypt_end / self.total_duration) * 100
+        if self.operation_start != 0:
+            result.operation_start = (self.operation_start / self.total_duration) * 100
+        if self.operation_end != 0:
+            result.operation_end = (self.operation_end / self.total_duration) * 100
+        if self.decrypt_start != 0:
+            result.decrypt_start = (self.decrypt_start / self.total_duration) * 100
+        if self.decrypt_end != 0:
+            result.decrypt_end = (self.decrypt_end / self.total_duration) * 100
+            
+        return result
+
+class PhaseMetricsAggregated:
+    """
+    Aggregates phase metrics across multiple runs.
+    """
+    def __init__(self):
+        self.runs = []
+
+    def add_phase_metrics(self, metrics: PhaseMetrics):
+        self.runs.append(metrics)
+
+    def get_avg_encrypt_duration(self):
+        return np.mean([run.encrypt_duration for run in self.runs if run.encrypt_duration > 0])
+
+    def get_avg_operation_duration(self):
+        return np.mean([run.operation_duration for run in self.runs if run.operation_duration > 0])
+
+    def get_avg_decrypt_duration(self):
+        return np.mean([run.decrypt_duration for run in self.runs if run.decrypt_duration > 0])
+
+    def get_average_phase_metrics(self):
+        """Get average phase metrics with timestamps interpolated to percentage scale using NUM_POINTS"""
+        if not self.runs:
+            return None
+            
+        # Convert each run's timestamps to percentages
+        percentage_runs = [run.get_percentage_timestamps() for run in self.runs]
+        
+        # Create a result metrics object
+        result = PhaseMetrics()
+        result.total_duration = 100  # 100%
+        
+        # Create x-axis points for interpolation
+        x_perc = np.linspace(0, 100, num=NUM_POINTS)
+        
+        # Interpolate each phase's start and end times
+        def interpolate_phase_times(times):
+            if not times:
+                return None
+            # Filter out zero values and get valid times
+            valid_times = [t for t in times if t != 0]
+            if not valid_times:
+                return None
+            # Interpolate to NUM_POINTS points
+            return np.interp(x_perc, np.linspace(0, 100, len(valid_times)), valid_times)
+        
+        # Interpolate each phase's timestamps
+        encrypt_starts = [run.encrypt_start for run in percentage_runs if run.encrypt_start != 0]
+        encrypt_ends = [run.encrypt_end for run in percentage_runs if run.encrypt_end != 0]
+        operation_starts = [run.operation_start for run in percentage_runs if run.operation_start != 0]
+        operation_ends = [run.operation_end for run in percentage_runs if run.operation_end != 0]
+        decrypt_starts = [run.decrypt_start for run in percentage_runs if run.decrypt_start != 0]
+        decrypt_ends = [run.decrypt_end for run in percentage_runs if run.decrypt_end != 0]
+        
+        # Get interpolated values and take the average
+        if encrypt_starts:
+            result.encrypt_start = np.mean(interpolate_phase_times(encrypt_starts))
+        if encrypt_ends:
+            result.encrypt_end = np.mean(interpolate_phase_times(encrypt_ends))
+        if operation_starts:
+            result.operation_start = np.mean(interpolate_phase_times(operation_starts))
+        if operation_ends:
+            result.operation_end = np.mean(interpolate_phase_times(operation_ends))
+        if decrypt_starts:
+            result.decrypt_start = np.mean(interpolate_phase_times(decrypt_starts))
+        if decrypt_ends:
+            result.decrypt_end = np.mean(interpolate_phase_times(decrypt_ends))
+            
+        return result
+
 # --- Utility Functions ---
 
-def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (seconds)", color=None):
+def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (seconds)", color=None, phase_metrics=None):
     """
-    Simplified plotting: always one x-label and one y-label.
+    Enhanced plotting function that can add phase lines if phase_metrics is provided.
     """
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.plot(x_data, y_data, label=y_label, color=color if color else "blue")
+    
+    if phase_metrics:
+        # Add phase lines if timestamps are non-zero
+        if phase_metrics.encrypt_start != 0 and phase_metrics.encrypt_end != 0:
+            ax.axvline(x=phase_metrics.encrypt_start, color='red', linestyle='--', label='Encrypt Start')
+            ax.axvline(x=phase_metrics.encrypt_end, color='red', linestyle='-', label='Encrypt End')
+        if phase_metrics.operation_start != 0 and phase_metrics.operation_end != 0:
+            ax.axvline(x=phase_metrics.operation_start, color='green', linestyle='--', label='Operation Start')
+            ax.axvline(x=phase_metrics.operation_end, color='green', linestyle='-', label='Operation End')
+        if phase_metrics.decrypt_start != 0 and phase_metrics.decrypt_end != 0:
+            ax.axvline(x=phase_metrics.decrypt_start, color='purple', linestyle='--', label='Decrypt Start')
+            ax.axvline(x=phase_metrics.decrypt_end, color='purple', linestyle='-', label='Decrypt End')
+    
     ax.legend()
     plt.title(title)
     fig.tight_layout()
@@ -138,22 +287,22 @@ def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (
     if PLOT_PRINT:
         plt.show()
 
-def plot_metric(metric, folder : str, isAggregated:bool=False):
+def plot_metric(metric, folder : str, isAggregated:bool=False, phase_metrics=None, phase_agg=None):
     """
-    Merged plotting function for both run and aggregated metrics.
-    When isAggregated is True, it uses metric.get_average_series and sets x_label to "Time (%)".
-    Otherwise, it uses the raw metric.times and metric.values with x_label "Time (seconds)".
-    It also uses the graph_title and graph_filename from the metric instance.
+    Enhanced plotting function that can add phase lines.
     """
     if isAggregated:
         x_data, y_data = metric.get_average_series()
         x_label = "Time (%)"
+        # For aggregated plots, use the average phase metrics with percentage timestamps
+        if phase_agg:
+            phase_metrics = phase_agg.get_average_phase_metrics()
     else:
         x_data, y_data = metric.times, metric.values
         x_label = "Time (seconds)"
     title = metric.graph_title if metric.graph_title else f"{metric.name} Graph"
     filename = metric.graph_filename if metric.graph_filename else "graph.png"
-    plot_graph(x_data, y_data, title, metric.name, filename, folder, x_label=x_label, color=metric.color)
+    plot_graph(x_data, y_data, title, metric.name, filename, folder, x_label=x_label, color=metric.color, phase_metrics=phase_metrics)
 
 def log_message(message : str, log_file : str):
     with open(log_file, "a") as f:
@@ -198,10 +347,14 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
             if BATTERY:
                 battery_agg = MetricsAggregated("Battery Consumption (Joules)", 'tab:orange', graph_filename="graph_avg_battery.png", graph_title="Average Battery Consumption Over % Time")
             
+            # Create aggregated phase metrics
+            phase_agg = PhaseMetricsAggregated()
+            
             result = None
             
             for run in range(number):
                 global current_run, current_network_bytes_sent, current_network_bytes_received, current_network_latency
+                global encrypt_start_time, encrypt_end_time, operation_start_time, operation_end_time, decrypt_start_time, decrypt_end_time
                 current_run = run
 
                 # Create a folder for each run and log the function and arguments.
@@ -213,8 +366,6 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"# Run {run+1}", log_file)
                 log_message("## Function and Args", log_file)
                 log_message(f"- Function: {func.__name__}", log_file)
-                #log_message(f"- Arguments: {args}", log_file)
-                #log_message(f"- Keyword Arguments: {kwargs}", log_file)
                 log_message(f"- Annotation: {annotation}", log_file)
                 print(Fore.RESET)
 
@@ -238,7 +389,6 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                     monitor_time_start = time.perf_counter()
                     memory_before = psutil_process.memory_info().rss
                     disk_io_before = psutil.disk_io_counters()
-
 
                     while not stop_monitoring.is_set():
                         monitor_time_current = time.perf_counter() - monitor_time_start
@@ -277,10 +427,24 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 func_time_execution = func_time_end - func_time_start
                 exec_metric.add_measurement(1, func_time_execution)
                 
+                # Create and update phase metrics
+                phase_metrics = PhaseMetrics()
+                phase_metrics.update_from_globals(func_time_start, func_time_end)  # Pass both start and end times
+                phase_agg.add_phase_metrics(phase_metrics)
+                
                 # Log run results.
                 log_message("## Profiling Results", log_file)
                 log_message("### Execution Time", log_file)
                 log_message(f"- Execution Time: {func_time_execution:.6f} seconds", log_file)
+
+                # Log phase durations
+                log_message("### Phase Durations", log_file)
+                if phase_metrics.encrypt_duration > 0:
+                    log_message(f"- Encryption Duration: {phase_metrics.encrypt_duration:.6f} seconds", log_file)
+                if phase_metrics.operation_duration > 0:
+                    log_message(f"- Operation Duration: {phase_metrics.operation_duration:.6f} seconds", log_file)
+                if phase_metrics.decrypt_duration > 0:
+                    log_message(f"- Decryption Duration: {phase_metrics.decrypt_duration:.6f} seconds", log_file)
 
                 log_message("### Additional Memory Usage", log_file)
                 log_message(f"- Average Memory Usage: {format_bytes(memory_metric.get_avg())}", log_file)
@@ -301,20 +465,19 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"- Total Disk Read: {format_bytes(disk_read_metric.get_sum())}", log_file)
                 log_message(f"- Total Disk Write: {format_bytes(disk_write_metric.get_sum())}", log_file)
 
-                
                 if BATTERY:
                     log_message("### Battery Consumption", log_file)
                     log_message(f"- Total Battery Consumption: {battery_metric.get_sum():.6f} Joules", log_file)
                 
                 # Plotting for this run using the merged plot_metric function.
-                plot_metric(cpu_metric, run_folder, isAggregated=False)
-                plot_metric(memory_metric, run_folder, isAggregated=False)
-                plot_metric(network_sent_metric, run_folder, isAggregated=False)
-                plot_metric(network_received_metric, run_folder, isAggregated=False)
-                plot_metric(disk_read_metric, run_folder, isAggregated=False)
-                plot_metric(disk_write_metric, run_folder, isAggregated=False)
+                plot_metric(cpu_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
+                plot_metric(memory_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
+                plot_metric(network_sent_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
+                plot_metric(network_received_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
+                plot_metric(disk_read_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
+                plot_metric(disk_write_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
                 if BATTERY:
-                    plot_metric(battery_metric, run_folder, isAggregated=False)
+                    plot_metric(battery_metric, run_folder, isAggregated=False, phase_metrics=phase_metrics)
                 
                 log_message("# Algorithm Result", log_file)
                 log_message(f"- Result: {result}", log_file)
@@ -340,8 +503,6 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message("# Aggregated Profiling Results", aggregated_log)
                 log_message("## Function and Args", aggregated_log)
                 log_message(f"- Function: {func.__name__}", aggregated_log)
-                #log_message(f"- Arguments: {args}", aggregated_log)
-                #log_message(f"- Keyword Arguments: {kwargs}", aggregated_log)
                 log_message(f"- Annotation: {annotation}", aggregated_log)
                 
                 # Log aggregated execution time metric.
@@ -349,6 +510,19 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 log_message(f"- Average: {exec_time_agg.aggregated_avg():.6f} seconds", aggregated_log)
                 log_message(f"- Min: {exec_time_agg.aggregated_min_of_min():.6f} seconds", aggregated_log)
                 log_message(f"- Max: {exec_time_agg.aggregated_max_of_max():.6f} seconds", aggregated_log)
+                
+                # Log aggregated phase durations
+                log_message("### Phase Durations", aggregated_log)
+                avg_encrypt = phase_agg.get_avg_encrypt_duration()
+                avg_operation = phase_agg.get_avg_operation_duration()
+                avg_decrypt = phase_agg.get_avg_decrypt_duration()
+                
+                if avg_encrypt > 0:
+                    log_message(f"- Average Encryption Duration: {avg_encrypt:.6f} seconds", aggregated_log)
+                if avg_operation > 0:
+                    log_message(f"- Average Operation Duration: {avg_operation:.6f} seconds", aggregated_log)
+                if avg_decrypt > 0:
+                    log_message(f"- Average Decryption Duration: {avg_decrypt:.6f} seconds", aggregated_log)
                 
                 # Aggregate Memory and CPU using MetricsAggregated.
                 log_message("### Additional Memory Usage", aggregated_log)
@@ -397,16 +571,14 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                     log_message(f"- Average Battery Consumption: {battery_agg.aggregated_avg_of_sum():.6f} Joules", aggregated_log)
                 
                 # Plot aggregated time series graphs using the merged plot_metric function.
-                plot_metric(cpu_agg, main_folder, isAggregated=True)
-                plot_metric(memory_agg, main_folder, isAggregated=True)
-                plot_metric(net_sent_agg, main_folder, isAggregated=True)
-                plot_metric(net_recv_agg, main_folder, isAggregated=True)
-                #plot_metric(exec_time_agg, main_folder, isAggregated=True)
-                #plot_metric(net_latency_agg, main_folder, isAggregated=True)
-                plot_metric(disk_read_agg, main_folder, isAggregated=True)
-                plot_metric(disk_write_agg, main_folder, isAggregated=True)
+                plot_metric(cpu_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
+                plot_metric(memory_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
+                plot_metric(net_sent_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
+                plot_metric(net_recv_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
+                plot_metric(disk_read_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
+                plot_metric(disk_write_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
                 if BATTERY:
-                    plot_metric(battery_agg, main_folder, isAggregated=True)
+                    plot_metric(battery_agg, main_folder, isAggregated=True, phase_agg=phase_agg)
                 
                 print(Fore.RESET)
             

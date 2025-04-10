@@ -21,9 +21,16 @@ from benchmark import profile_and_monitor
 #NOTE CONSTANTS
 BUFFER_SIZE = 4096
 
-benchmark.current_network_bytes_sent = 0
-benchmark.current_network_bytes_received = 0
-benchmark.current_network_latency = 0
+def reset_benchmark():
+    benchmark.current_network_bytes_sent = 0
+    benchmark.current_network_bytes_received = 0
+    benchmark.current_network_latency = 0
+    benchmark.encrypt_start_time = 0
+    benchmark.encrypt_end_time = 0
+    benchmark.operation_start_time = 0
+    benchmark.operation_end_time = 0
+    benchmark.decrypt_start_time = 0
+    benchmark.decrypt_end_time = 0
 
 #SECTION - HE SCHEMES
 class HEScheme(ABC):
@@ -536,6 +543,7 @@ def run_client_operations(sock, scheme, operation, public_key, private_key, conf
     scalar = random.getrandbits(1024)
 
     # Encrypt data
+    benchmark.encrypt_start_time = time.perf_counter()
     encrypted_data = encrypt_messages(scheme, public_key, flattened_data)
     print(f"> Computing {operation} on {nb_patients} patients (each with {nb_vitals} vitals)")
 
@@ -545,6 +553,7 @@ def run_client_operations(sock, scheme, operation, public_key, private_key, conf
         'scalar': scalar,
         'serialized_data': serialize_encrypted_data(scheme, encrypted_data)
     }
+    benchmark.encrypt_end_time = time.perf_counter()
 
     # Add second dataset for add_encrypted operation
     if operation == 'add_encrypted':
@@ -558,8 +567,10 @@ def run_client_operations(sock, scheme, operation, public_key, private_key, conf
     serialized_data = receive_data(sock)
 
     # Process result
+    benchmark.decrypt_start_time = time.perf_counter()
     encrypted_result = deserialize_encrypted_data(scheme, serialized_data, public_key)
     decrypted_result = decrypt_messages(scheme, private_key, encrypted_result)
+    benchmark.decrypt_end_time = time.perf_counter()
 
     # Signal completion to server
     print("> Signaling completion to server...")
@@ -604,6 +615,7 @@ def run_server_operations(sock, scheme, config, public_key):
     enc_msgs2 = deserialize_encrypted_data(scheme, data_to_compute['serialized_data2'], public_key) if operation == 'add_encrypted' else None
 
     # Perform operations
+    benchmark.operation_start_time = time.perf_counter()
     result = perform_homomorphic_operation(
         scheme,
         operation, 
@@ -612,6 +624,7 @@ def run_server_operations(sock, scheme, config, public_key):
         data_list2=enc_msgs2,
         nb_operations=config['nb_operations']
     )
+    benchmark.operation_end_time = time.perf_counter()
 
     # Send result
     serialized_result = serialize_encrypted_data(scheme, result)
@@ -720,8 +733,8 @@ if __name__ == '__main__':
 
                     # Single loop for all combinations
                     for nb_patients, nb_vitals, operation in itertools.product(nb_patients_list, nb_vitals_list, operations):
-                        benchmark.current_network_bytes_sent = 0
-                        benchmark.current_network_bytes_received = 0
+                        
+                        reset_benchmark()
                         config = {
                             'nb_runs': args.nb_runs,
                             'nb_vitals': nb_vitals,
@@ -761,8 +774,7 @@ if __name__ == '__main__':
                     # Single loop for all combinations
                     for nb_patients, nb_vitals, operation in itertools.product(nb_patients_list, nb_vitals_list, operations):
                         
-                        benchmark.current_network_bytes_sent = 0
-                        benchmark.current_network_bytes_received = 0
+                        reset_benchmark()
                         config = {
                             'nb_runs': args.nb_runs,
                             'nb_vitals': nb_vitals,
