@@ -99,12 +99,7 @@ class MetricsAggregated:
     
     def aggregated_max_of_avg(self):
         return max([run.get_avg() for run in self.runs])
-    
-    def aggregated_min_of_min(self):
-        return min([run.get_min() for run in self.runs])
-    
-    def aggregated_max_of_max(self):
-        return max([run.get_max() for run in self.runs])
+
     
     def aggregated_avg_of_sum(self):
         return np.mean([run.get_sum() for run in self.runs])
@@ -206,6 +201,24 @@ class PhaseMetricsAggregated:
 
     def get_avg_decrypt_duration(self):
         return np.mean([run.decrypt_duration for run in self.runs if run.decrypt_duration > 0])
+    
+    def get_min_encrypt_duration(self):
+        return min([run.encrypt_duration for run in self.runs if run.encrypt_duration > 0])
+
+    def get_min_operation_duration(self):
+        return min([run.operation_duration for run in self.runs if run.operation_duration > 0])
+
+    def get_min_decrypt_duration(self):
+        return min([run.decrypt_duration for run in self.runs if run.decrypt_duration > 0])
+    
+    def get_max_encrypt_duration(self):
+        return max([run.encrypt_duration for run in self.runs if run.encrypt_duration > 0])
+
+    def get_max_operation_duration(self):
+        return max([run.operation_duration for run in self.runs if run.operation_duration > 0])
+    
+    def get_max_decrypt_duration(self):
+        return max([run.decrypt_duration for run in self.runs if run.decrypt_duration > 0])
 
     def get_average_phase_metrics(self):
         """Get average phase metrics with timestamps interpolated to percentage scale using NUM_POINTS"""
@@ -513,63 +526,68 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                 # Log aggregated execution time metric.
                 log_message("### Execution Time", aggregated_log)
                 log_message(f"- Average: {exec_time_agg.aggregated_avg():.6f} seconds", aggregated_log)
-                log_message(f"- Min: {exec_time_agg.aggregated_min_of_min():.6f} seconds", aggregated_log)
-                log_message(f"- Max: {exec_time_agg.aggregated_max_of_max():.6f} seconds", aggregated_log)
+                log_message(f"- Min: {exec_time_agg.aggregated_min_of_avg():.6f} seconds", aggregated_log)
+                log_message(f"- Max: {exec_time_agg.aggregated_max_of_avg():.6f} seconds", aggregated_log)
                 
                 # Log aggregated phase durations
                 log_message("### Phase Durations", aggregated_log)
-                avg_encrypt = phase_agg.get_avg_encrypt_duration()
-                avg_operation = phase_agg.get_avg_operation_duration()
-                avg_decrypt = phase_agg.get_avg_decrypt_duration()
                 
-                if avg_encrypt > 0:
-                    log_message(f"- Average Encryption Duration: {avg_encrypt:.6f} seconds", aggregated_log)
-                if avg_operation > 0:
-                    log_message(f"- Average Operation Duration: {avg_operation:.6f} seconds", aggregated_log)
-                if avg_decrypt > 0:
-                    log_message(f"- Average Decryption Duration: {avg_decrypt:.6f} seconds", aggregated_log)
+                if phase_agg.get_avg_encrypt_duration() > 0:
+                    log_message(f"- Average Encryption Duration: {phase_agg.get_avg_encrypt_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Min Encryption Duration: {phase_agg.get_min_encrypt_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Max Encryption Duration: {phase_agg.get_max_encrypt_duration():.6f} seconds", aggregated_log)
+                if phase_agg.get_avg_operation_duration() > 0:
+                    log_message(f"- Average Operation Duration: {phase_agg.get_avg_operation_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Min Operation Duration: {phase_agg.get_min_operation_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Max Operation Duration: {phase_agg.get_max_operation_duration():.6f} seconds", aggregated_log)
+                if phase_agg.get_avg_decrypt_duration() > 0:
+                    log_message(f"- Average Decryption Duration: {phase_agg.get_avg_decrypt_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Min Decryption Duration: {phase_agg.get_min_decrypt_duration():.6f} seconds", aggregated_log)
+                    log_message(f"- Max Decryption Duration: {phase_agg.get_max_decrypt_duration():.6f} seconds", aggregated_log)
                 
                 # Aggregate Memory and CPU using MetricsAggregated.
                 log_message("### Additional Memory Usage", aggregated_log)
-                log_message(f"- Average (avg of avgs): {format_bytes(memory_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Min (min of avgs): {format_bytes(memory_agg.aggregated_min_of_avg())}", aggregated_log)
-                log_message(f"- Max (max of avgs): {format_bytes(memory_agg.aggregated_max_of_avg())}", aggregated_log)
-                log_message(f"- Absolute Min (min of mins): {format_bytes(memory_agg.aggregated_min_of_min())}", aggregated_log)
-                log_message(f"- Absolute Max (max of maxs): {format_bytes(memory_agg.aggregated_max_of_max())}", aggregated_log)
+                log_message(f"- Average : {format_bytes(memory_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min : {format_bytes(memory_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(memory_agg.aggregated_max_of_avg())}", aggregated_log)
                 
                 log_message("### CPU Busy Percentage", aggregated_log)
-                log_message(f"- Average (avg of avgs): {cpu_agg.aggregated_avg():.2f}%", aggregated_log)
-                log_message(f"- Min (min of avgs): {cpu_agg.aggregated_min_of_avg():.2f}%", aggregated_log)
-                log_message(f"- Max (max of avgs): {cpu_agg.aggregated_max_of_avg():.2f}%", aggregated_log)
-                log_message(f"- Absolute Min (min of mins): {cpu_agg.aggregated_min_of_min():.2f}%", aggregated_log)
-                log_message(f"- Absolute Max (max of maxs): {cpu_agg.aggregated_max_of_max():.2f}%", aggregated_log)
+                log_message(f"- Average : {cpu_agg.aggregated_avg():.2f}%", aggregated_log)
+                log_message(f"- Min : {cpu_agg.aggregated_min_of_avg():.2f}%", aggregated_log)
+                log_message(f"- Max : {cpu_agg.aggregated_max_of_avg():.2f}%", aggregated_log)
                 
                 # Aggregate Network metrics.
                 log_message("### Network Metrics", aggregated_log)
+                log_message("#### Bandwidth", aggregated_log)
+                log_message(f"- Average : {format_bytes(net_sent_agg.aggregated_avg() + net_recv_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min : {format_bytes(net_sent_agg.aggregated_min_of_avg() + net_recv_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(net_sent_agg.aggregated_max_of_avg() + net_recv_agg.aggregated_max_of_avg())}", aggregated_log)
+
                 log_message("#### Bytes Sent", aggregated_log)
-                log_message(f"- Average (avg of avgs): {format_bytes(net_sent_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Min (min of avgs): {format_bytes(net_sent_agg.aggregated_min_of_avg())}", aggregated_log)
-                log_message(f"- Max (max of avgs): {format_bytes(net_sent_agg.aggregated_max_of_avg())}", aggregated_log)
-                log_message(f"- Absolute Min (min of mins): {format_bytes(net_sent_agg.aggregated_min_of_min())}", aggregated_log)
-                log_message(f"- Absolute Max (max of maxs): {format_bytes(net_sent_agg.aggregated_max_of_max())}", aggregated_log)
+                log_message(f"- Average : {format_bytes(net_sent_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min: {format_bytes(net_sent_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(net_sent_agg.aggregated_max_of_avg())}", aggregated_log)
+                
                 log_message("#### Bytes Received", aggregated_log)
-                log_message(f"- Average (avg of avgs): {format_bytes(net_recv_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Min (min of avgs): {format_bytes(net_recv_agg.aggregated_min_of_avg())}", aggregated_log)
-                log_message(f"- Max (max of avgs): {format_bytes(net_recv_agg.aggregated_max_of_avg())}", aggregated_log)
-                log_message(f"- Absolute Min (min of mins): {format_bytes(net_recv_agg.aggregated_min_of_min())}", aggregated_log)
-                log_message(f"- Absolute Max (max of maxs): {format_bytes(net_recv_agg.aggregated_max_of_max())}", aggregated_log)
-                log_message("#### Latency", aggregated_log)
-                log_message(f"- Average (avg of avgs): {net_latency_agg.aggregated_avg():.6f} ms", aggregated_log)
-                log_message(f"- Min (min of avgs): {net_latency_agg.aggregated_min_of_avg():.6f} ms", aggregated_log)
-                log_message(f"- Max (max of avgs): {net_latency_agg.aggregated_max_of_avg():.6f} ms", aggregated_log)
+                log_message(f"- Average : {format_bytes(net_recv_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min : {format_bytes(net_recv_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(net_recv_agg.aggregated_max_of_avg())}", aggregated_log)
+                
+                log_message("### Latency", aggregated_log)
+                log_message(f"- Average : {net_latency_agg.aggregated_avg():.6f} ms", aggregated_log)
+                log_message(f"- Min : {net_latency_agg.aggregated_min_of_avg():.6f} ms", aggregated_log)
+                log_message(f"- Max : {net_latency_agg.aggregated_max_of_avg():.6f} ms", aggregated_log)
 
                 log_message("### Disk I/O Metrics", aggregated_log)
                 log_message("#### Disk Read", aggregated_log)
-                log_message(f"- Average (avg of avgs): {format_bytes(disk_read_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- =Max (max of maxs): {format_bytes(disk_read_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message(f"- Average : {format_bytes(disk_read_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min : {format_bytes(disk_read_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(disk_read_agg.aggregated_max_of_avg())}", aggregated_log)
+
                 log_message("#### Disk Write", aggregated_log)
-                log_message(f"- Average (avg of avgs): {format_bytes(disk_write_agg.aggregated_avg())}", aggregated_log)
-                log_message(f"- Max (max of maxs): {format_bytes(disk_write_agg.aggregated_max_of_avg())}", aggregated_log)
+                log_message(f"- Average : {format_bytes(disk_write_agg.aggregated_avg())}", aggregated_log)
+                log_message(f"- Min : {format_bytes(disk_write_agg.aggregated_min_of_avg())}", aggregated_log)
+                log_message(f"- Max : {format_bytes(disk_write_agg.aggregated_max_of_avg())}", aggregated_log)
 
                 if BATTERY:
                     log_message("### Battery Consumption", aggregated_log)

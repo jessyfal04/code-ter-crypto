@@ -231,9 +231,9 @@ class CKKSScheme(HEScheme):
         context = ts.context(
             ts.SCHEME_TYPE.CKKS,
             poly_modulus_degree=key_length,
-            coeff_mod_bit_sizes=[30, 20, 20, 30] * (key_length//4096) # Set the appropriate coeff_mod_bit_sizes
+            coeff_mod_bit_sizes=[30, 20, 20, 30] * int(key_length/4096) # Set the appropriate coeff_mod_bit_sizes
         )
-        context.global_scale = pow(2, 20 * (key_length//4096))  # Set appropriate scale for CKKS
+        context.global_scale = pow(2, 20 * int(key_length/4096))  # Set appropriate scale for CKKS
         context.generate_galois_keys()
         private_context = context.secret_key()
         context.make_context_public()
@@ -533,20 +533,23 @@ def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, dat
 
     # Special handling for TFHE scheme
     if isinstance(scheme, TFHEScheme):
+        circuit_server = public_context["circuit_server"]
+        evaluation_keys = public_context["evaluation_keys"]
+        
         for _ in range(nb_operations):
             if "encrypted" in operation and operation in OPERATIONS_POSSIBLE:
                 result = [
-                    public_context["circuit_server"].run(
+                    circuit_server.run(
                         m,
-                        evaluation_keys=public_context["evaluation_keys"]
+                        evaluation_keys=evaluation_keys
                     )
                     for m in data_list_copy
                 ]
             elif not "encrypted" in operation and operation in OPERATIONS_POSSIBLE:
                 result = [
-                    public_context["circuit_server"].run(
+                    circuit_server.run(
                         enc,
-                        evaluation_keys=public_context["evaluation_keys"]
+                        evaluation_keys=evaluation_keys
                     )
                     for enc in data_list_copy
                 ]
