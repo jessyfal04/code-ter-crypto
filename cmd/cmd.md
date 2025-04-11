@@ -50,6 +50,11 @@ benchmark_config="--operation add_encrypted --port 12345 --nb_runs 5 --nb_patien
 benchmark_config="--operation add_encrypted --port 12345 --nb_runs 10 --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 256 --folder_prefix comp2 --scheme bfv,ckks"
 benchmark_config="--operation add_scalar --port 12345 --nb_runs 1 --nb_patients 1 --nb_vitals 1024 --key_length 4096 --nb_operations 10 --folder_prefix 3scheme2 --scheme bfv,ckks,tfhe"
 
+benchmark_config=" --port 12345 --nb_runs 2 --nb_data 128 --key_length 4096 --nb_operations 16 --folder_prefix testAllAll --operation add_encrypted --scheme paillier"
+
+benchmark_config=" --port 12345 --nb_runs 2 --nb_data 128 --key_length 4096 --nb_operations 16 --folder_prefix scheme --operation all --scheme bfv,ckks,tfhe"
+
+
 
 ### Client Server
 python code/he_benchmark.py --client vm1 $benchmark_config

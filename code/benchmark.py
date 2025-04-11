@@ -4,6 +4,8 @@ import threading
 import psutil
 import functools
 import gc
+import matplotlib
+matplotlib.use('Agg')  # Set backend to non-interactive
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
@@ -283,7 +285,7 @@ def plot_graph(x_data, y_data, title, y_label, filename, folder, x_label="Time (
     fig.tight_layout()
     file_path = os.path.join(folder, f"{filename}")
     fig.savefig(file_path)
-    print(Fore.GREEN + f"Saving graph '{title}' to: {file_path}")
+    plt.close(fig)  # Close the figure to free memory
     if PLOT_PRINT:
         plt.show()
 
@@ -495,6 +497,9 @@ def profile_and_monitor(number : int=1, folder_prefix : str="", annotation : str
                     battery_agg.add_metric_run(battery_metric)
                 
                 gc.collect()
+                print(Fore.GREEN + f"Run {run+1}/{number} completed.")
+                print(Fore.RESET)
+
             
             # Compute aggregated results if multiple runs were performed.
             if number > 1:

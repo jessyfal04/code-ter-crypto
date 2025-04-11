@@ -21,6 +21,9 @@ from benchmark import profile_and_monitor
 
 #NOTE CONSTANTS
 BUFFER_SIZE = 4096
+OPERATIONS_POSSIBLE = ["add_scalar", "add_encrypted", "mul_scalar", "mul_encrypted"]
+DATA_RANGE = 2**7
+MINI_DATA_RANGE = 2**4
 
 def reset_benchmark():
     benchmark.current_network_bytes_sent = 0
@@ -43,7 +46,7 @@ class HEScheme(ABC):
         pass
     
     @abstractmethod
-    def encrypt(self, public_context, message):
+    def encrypt(self, public_context, private_context, message, message2=None):
         """Encrypt a message"""
         pass
     
@@ -100,7 +103,7 @@ class PaillierScheme(HEScheme):
         print(f"> Generating Keypair of length {key_length} bits")
         return paillier.generate_paillier_keypair(n_length=key_length)
     
-    def encrypt(self, public_context, message):
+    def encrypt(self, public_context, private_context, message, message2=None):
         """Encrypt a message using Paillier"""
         return public_context.encrypt(message)
     
@@ -164,7 +167,7 @@ class BFVScheme(HEScheme):
         context.make_context_public()
         return context, private_context
     
-    def encrypt(self, public_context, message):
+    def encrypt(self, public_context, private_context, message, message2=None):
         """Encrypt a message using BFV"""
         if isinstance(message, list):
             return ts.bfv_vector(public_context, message)
@@ -194,7 +197,6 @@ class BFVScheme(HEScheme):
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using BFV"""
-        print(f"> Adding scalar {scalar} to encrypted number {enc}")
         return enc + scalar
     
     def add_encrypted(self, enc1, enc2):
@@ -225,14 +227,19 @@ class CKKSScheme(HEScheme):
     def generate_contexts(self, key_length, operation=None):
         """Generate a CKKS keypair with optimized parameters"""
         print(f"> Generating Keypair of length {key_length} bits")
-        context = ts.context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=key_length)
-        context.global_scale = pow(2, 40)  # Set appropriate scale for CKKS
+        # Create context with proper parameters
+        context = ts.context(
+            ts.SCHEME_TYPE.CKKS,
+            poly_modulus_degree=key_length,
+            coeff_mod_bit_sizes=[30, 20, 20, 30] * (key_length//4096) # Set the appropriate coeff_mod_bit_sizes
+        )
+        context.global_scale = pow(2, 20 * (key_length//4096))  # Set appropriate scale for CKKS
         context.generate_galois_keys()
         private_context = context.secret_key()
         context.make_context_public()
         return context, private_context
     
-    def encrypt(self, public_context, message):
+    def encrypt(self, public_context, private_context, message, message2=None):
         """Encrypt a message using CKKS"""
         if isinstance(message, list):
             return ts.ckks_vector(public_context, message)
@@ -270,11 +277,13 @@ class CKKSScheme(HEScheme):
     
     def multiply_scalar(self, enc, scalar):
         """Multiply an encrypted number by a scalar using CKKS"""
-        return enc * scalar
+        result = enc * scalar
+        return result
     
     def multiply_encrypted(self, enc1, enc2):
         """Multiply two encrypted numbers using CKKS"""
-        return enc1 * enc2
+        result = enc1 * enc2
+        return result
     
     def serialize_public_context(self, public_context):
         """Serialize CKKS public context"""
@@ -313,9 +322,12 @@ class TFHEScheme(HEScheme):
         else:
             raise ValueError(f"Unsupported operation: {operation}")
         
-        # Compile the circuit
+        # Compile the circuit with uint5 range (0-31)
         compiler = fhe.Compiler(functionToCompile, input_types)
-        inputset = [(i, j) for i in range(2**8) for j in range(2**8)]
+        if operation == "mul_encrypted":
+            inputset = [(i, j) for i in range(MINI_DATA_RANGE) for j in range(MINI_DATA_RANGE)]
+        else:
+            inputset = [(i, j) for i in range(DATA_RANGE) for j in range(DATA_RANGE)]
         circuit = compiler.compile(inputset)
         circuit.keygen()
         
@@ -328,9 +340,14 @@ class TFHEScheme(HEScheme):
         
         return public_context, private_context
     
-    def encrypt(self, public_context, message):
+    def encrypt(self, public_context, private_context, message, message2=None):
         """Encrypt a message using TFHE"""
-        raise NotImplementedError()
+        if message2 is None:
+            message2 = message
+        return [
+            private_context["circuit_client"].encrypt(d1, d2)
+            for d1, d2 in zip(message, message2)
+        ]
     
     def decrypt(self, private_context, encrypted_message):
         """Decrypt an encrypted message using TFHE"""
@@ -339,13 +356,54 @@ class TFHEScheme(HEScheme):
     def serialize_encrypted(self, encrypted_data):
         """Serialize encrypted data for TFHE"""
         print("> Serializing encrypted data")
-        raise NotImplementedError()
+        # Handle lists of encrypted data
+        if isinstance(encrypted_data, list):
+            serialized_list = []
+            for item in encrypted_data:
+                if isinstance(item, tuple):
+                    # Handle tuple of encrypted values
+                    serialized_tuple = [base64.b64encode(ei.serialize()).decode('utf-8') for ei in item]
+                    serialized_list.append(serialized_tuple)
+                else:
+                    # Handle single Value object
+                    serialized = base64.b64encode(item.serialize()).decode('utf-8')
+                    serialized_list.append(serialized)
+            return json.dumps(serialized_list)
+        elif isinstance(encrypted_data, tuple):
+            # Handle single tuple of encrypted values
+            serialized_tuple = [base64.b64encode(ei.serialize()).decode('utf-8') for ei in encrypted_data]
+            return json.dumps(serialized_tuple)
+        else:
+            # Handle single Value object
+            serialized = base64.b64encode(encrypted_data.serialize()).decode('utf-8')
+            return json.dumps(serialized)
     
     def deserialize_encrypted(self, serialized_data, public_context):
         """Deserialize encrypted data for TFHE"""
         print("> Deserializing encrypted data")
-        serialized_list = json.loads(serialized_data)
-        return tuple([fhe.Value.deserialize(base64.b64decode(ei)) for ei in serialized_list])
+        # Parse the JSON data
+        data = json.loads(serialized_data)
+        
+        # Handle different data structures
+        if isinstance(data, list):
+            deserialized_list = []
+            for item in data:
+                if isinstance(item, list):
+                    # Handle list of base64 strings (from tuple serialization)
+                    deserialized_tuple = tuple([
+                        fhe.Value.deserialize(base64.b64decode(ei))
+                        for ei in item
+                    ])
+                    deserialized_list.append(deserialized_tuple)
+                else:
+                    # Handle single base64 string
+                    deserialized_list.append(
+                        fhe.Value.deserialize(base64.b64decode(item))
+                    )
+            return deserialized_list
+        else:
+            # Handle single base64 string
+            return fhe.Value.deserialize(base64.b64decode(data))
     
     def add_scalar(self, enc, scalar):
         """Add a scalar to an encrypted number using TFHE"""
@@ -439,11 +497,15 @@ def send_data(sock, data):
     benchmark.current_network_bytes_sent += data_length
 
 #ANCHOR - RECEIVING
+class EmptyResponseError(Exception):
+    """Raised when no data is received from the socket"""
+    pass
+
 def receive_data(sock):
     """Receive data efficiently"""
     raw_length = sock.recv(4)
     if not raw_length:
-        return None
+        raise EmptyResponseError("No data received from socket")
     data_length = struct.unpack('!I', raw_length)[0]
     
     received_bytes = 0
@@ -451,7 +513,7 @@ def receive_data(sock):
     while received_bytes < data_length:
         chunk = sock.recv(min(BUFFER_SIZE, data_length - received_bytes))
         if not chunk:
-            break
+            raise EmptyResponseError("Connection closed while receiving data")
         data_chunks.append(chunk)
         received_bytes += len(chunk)
     
@@ -465,42 +527,28 @@ def receive_data(sock):
 def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, data_list2=None, nb_operations=1, public_context=None):
     """Perform a homomorphic operation on encrypted data"""
     print(f"> Performing homomorphic operation {operation}, {nb_operations} times")
-    result = data_list
+    data_list_copy = data_list.copy()
+    data_list2_copy = data_list2.copy() if data_list2 is not None else None
+    result = None
 
     # Special handling for TFHE scheme
     if isinstance(scheme, TFHEScheme):
         for _ in range(nb_operations):
-            if operation == 'add_scalar':
+            if "encrypted" in operation and operation in OPERATIONS_POSSIBLE:
                 result = [
                     public_context["circuit_server"].run(
-                        enc,
+                        m,
                         evaluation_keys=public_context["evaluation_keys"]
                     )
-                    for enc in data_list
+                    for m in data_list_copy
                 ]
-            elif operation == 'add_encrypted':
+            elif not "encrypted" in operation and operation in OPERATIONS_POSSIBLE:
                 result = [
                     public_context["circuit_server"].run(
                         enc,
                         evaluation_keys=public_context["evaluation_keys"]
                     )
-                    for enc in data_list
-                ]
-            elif operation == 'mul_scalar':
-                result = [
-                    public_context["circuit_server"].run(
-                        enc,
-                        evaluation_keys=public_context["evaluation_keys"]
-                    )
-                    for enc in data_list
-                ]
-            elif operation == 'mul_encrypted':
-                result = [
-                    public_context["circuit_server"].run(
-                        enc,
-                        evaluation_keys=public_context["evaluation_keys"]
-                    )
-                    for enc in data_list
+                    for enc in data_list_copy
                 ]
             else:
                 raise ValueError(f"Unsupported operation: {operation}")
@@ -508,16 +556,15 @@ def perform_homomorphic_operation(scheme, operation, data_list, scalar=None, dat
         # Original implementation for other schemes
         for _ in range(nb_operations):
             if operation == 'add_scalar':
-                result = [scheme.add_scalar(m, scalar) for m in result]
+                result = [scheme.add_scalar(m, scalar) for m in data_list_copy]
             elif operation == 'add_encrypted':
-                result = [scheme.add_encrypted(m, m2) for m, m2 in zip(result, data_list2)]
+                result = [scheme.add_encrypted(m, m2) for m, m2 in zip(data_list_copy, data_list2_copy)]
             elif operation == 'mul_scalar':
-                result = [scheme.multiply_scalar(m, scalar) for m in result]
+                result = [scheme.multiply_scalar(m, scalar) for m in data_list_copy]
             elif operation == 'mul_encrypted':
-                result = [scheme.multiply_encrypted(m, m2) for m, m2 in zip(result, data_list2)]
+                result = [scheme.multiply_encrypted(m, m2) for m, m2 in zip(data_list_copy, data_list2_copy)]
             else:
                 raise ValueError(f"Unsupported operation: {operation}")
-    print(f"> Result: {result}")
     return result
 #!SECTION - END HOMOMORPHIC OPERATIONS
 
@@ -548,26 +595,13 @@ def receive_public_context(sock, scheme):
 #!SECTION - END KEY EXCHANGE
 
 #SECTION - MEDICAL DATA
-#ANCHOR - GENERATE MOCK
-def generate_mock_medical_data(num_patients, num_vitals):
-    """Generate mock medical data efficiently"""
-    return [
-        (p_id + 1, [random.randint(60, 120) for _ in range(num_vitals)])
-        for p_id in range(num_patients)
-    ]
-
-#ANCHOR - FLATTEN
-def flatten_medical_data(medical_data):
-    """Flatten medical data efficiently"""
-    return [vital for _, vitals in medical_data for vital in vitals]
-
-#ANCHOR - UNFLATTEN
-def unflatten_medical_data(flattened_data, num_patients, num_vitals):
-    """Unflatten medical data efficiently"""
-    return [
-        (p_id + 1, flattened_data[p_id * num_vitals : (p_id + 1) * num_vitals])
-        for p_id in range(num_patients)
-    ]
+#ANCHOR - GENERATE DATA
+def generate_data(num_elements, operation=None, scheme=None):
+    """Generate data for homomorphic operations"""
+    if isinstance(scheme, TFHEScheme) and operation == "mul_encrypted":
+        return [random.randint(0, MINI_DATA_RANGE) for _ in range(num_elements)]
+    else:
+        return [random.randint(0, DATA_RANGE) for _ in range(num_elements)]
 #!SECTION - END MEDICAL DATA
 
 #SECTION - LATENCY
@@ -577,20 +611,18 @@ def measure_latency_client(sock):
     # Check readyness of the server
     send_data(sock, "ping_ready")
     if receive_data(sock) != "pong_ready":
-        print("Unexpected response")
-        return
+        raise ValueError("Unexpected response")
 
     # Start RTT of the client
     start_time = time.time()
     send_data(sock, "ping")
     if receive_data(sock) != "pong":
-        print("Unexpected response")
-        return
+        raise ValueError("Unexpected response")
     end_time = time.time()
     
     # Store the RTT and Send the RTT to the server
     rtt_client = (end_time - start_time) * 1000
-    print(f"[Client] RTT: {rtt_client:.2f} ms")
+    print(f"^ RTT: {rtt_client:.2f} ms")
     benchmark.current_network_latency = rtt_client
     send_data(sock, str(rtt_client))
 
@@ -599,21 +631,19 @@ def measure_latency_server(sock):
     """Measure network latency from server side"""
     # Validate readyness of the server
     if receive_data(sock) != "ping_ready":
-        print("Unexpected response")
-        return
+        raise ValueError("Unexpected response")
     send_data(sock, "pong_ready")
 
     # Start RTT of the client
     if receive_data(sock) != "ping":
-        print("Unexpected request")
-        return
+        raise ValueError("Unexpected response")
     send_data(sock, "pong")
 
     # Get the RTT of client
     rtt_server = float(receive_data(sock))
 
     # Store the RTT
-    print(f"[Server] RTT: {rtt_server:.2f} ms")
+    print(f"^ RTT: {rtt_server:.2f} ms")
     benchmark.current_network_latency = rtt_server
 #!SECTION - END LATENCY
 
@@ -623,33 +653,27 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
     """Run client operations efficiently"""
     measure_latency_client(sock)
 
-    nb_patients = config['nb_patients']
-    nb_vitals = config['nb_vitals']
+    nb_data = config['nb_data']
 
-    # Generate and process medical data
-    medical_data = generate_mock_medical_data(nb_patients, nb_vitals)
-    flattened_data = flatten_medical_data(medical_data)
-    scalar = random.randint(2**8, 2**16)
+    # Generate data
+    data = generate_data(nb_data, operation=operation, scheme=scheme)
+    scalar = 4
 
     # Encrypt data
     benchmark.encrypt_start_time = time.perf_counter()
     if isinstance(scheme, TFHEScheme):
-        print("> Encrypting and Serializing data")
         # For TFHE, we need to encrypt pairs of data together
-        data2 = flattened_data if "encrypted" in operation else [scalar] * len(flattened_data)
-        encrypted_data = json.dumps([
-            tuple([base64.b64encode(ei.serialize()).decode('utf-8') for ei in private_context["circuit_client"].encrypt(d1, d2)])
-            for d1, d2 in zip(flattened_data, data2)
-        ])
+        data2 = data if "encrypted" in operation else [scalar] * len(data)
+        encrypted_data = scheme.encrypt(public_context, private_context, data, data2)
     else:
-        encrypted_data = [scheme.encrypt(public_context, m) for m in flattened_data]
-    print(f"> Computing {operation} on {nb_patients} patients (each with {nb_vitals} vitals)")
+        encrypted_data = [scheme.encrypt(public_context, private_context, m) for m in data]
+    print(f"> Computing {operation} on {nb_data} elements")
 
     # Prepare data for computation
     data_to_compute = {
         'operation': operation,
         'scalar': scalar,
-        'data': scheme.serialize_encrypted(encrypted_data) if not isinstance(scheme, TFHEScheme) else encrypted_data
+        'data': scheme.serialize_encrypted(encrypted_data)
     }
     benchmark.encrypt_end_time = time.perf_counter()
 
@@ -670,8 +694,13 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
     decrypted_result = [scheme.decrypt(private_context, m) for m in encrypted_result]
     benchmark.decrypt_end_time = time.perf_counter()
 
-    # print(f"Data: {flattened_data}")
-    # print(f"Result: {decrypted_result}")
+    # Print to verify the result
+    print(Fore.CYAN)
+    print(f"# data: {data[0:max(1, min(4, len(data)))]}")
+    print(f"# scalar: {scalar}")
+    print(f"# operation: {operation}")
+    print(f"# result: {decrypted_result[0:max(1, min(4, len(decrypted_result)))]}")
+    print(Fore.RESET)
 
     # Signal completion to server
     print("> Signaling completion to server...")
@@ -680,12 +709,11 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
 #ANCHOR - CLIENT
 def client(sock, scheme, config, public_context, private_context):
     """Client main function"""
-    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['nb_vitals']}bits"
+    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"client_{config['operation']}_{config['nb_data']}bits"
     annotation_str = (
         f"Client Operation | "
         f"NB_RUNS={config['nb_runs']}, "
-        f"NB_VITALS={config['nb_vitals']}, "
-        f"NB_PATIENTS={config['nb_patients']}, "
+        f"NB_DATA={config['nb_data']}, "
         f"KEY_LENGTH={config['key_length']}, "
         f"OPERATION={config['operation']}, "
         f"SCHEME={config['scheme']}"
@@ -711,17 +739,9 @@ def run_server_operations(sock, scheme, config, public_context):
     operation = data_to_compute['operation']
     scalar = data_to_compute['scalar']
     
-    data_list = None
-    data_list2 = None
     # Process input data
-    if isinstance(scheme, TFHEScheme):
-        data_list = [
-            tuple([fhe.Value.deserialize(base64.b64decode(ei)) for ei in encrypted_data])
-            for encrypted_data in json.loads(data_to_compute['data'])
-        ]
-    else:
-        data_list = scheme.deserialize_encrypted(data_to_compute['data'], public_context)
-        data_list2 = scheme.deserialize_encrypted(data_to_compute['data2'], public_context) if "encrypted" in operation else None
+    data_list = scheme.deserialize_encrypted(data_to_compute['data'], public_context)
+    data_list2 = scheme.deserialize_encrypted(data_to_compute['data2'], public_context) if "encrypted" in operation and not isinstance(scheme, TFHEScheme) else None
 
     # Perform operations
     benchmark.operation_start_time = time.perf_counter()
@@ -737,14 +757,14 @@ def run_server_operations(sock, scheme, config, public_context):
     benchmark.operation_end_time = time.perf_counter()
 
     # Send result
-    if isinstance(scheme, TFHEScheme):
-        serialized_result = json.dumps(
-            tuple([base64.b64encode(er.serialize()).decode('utf-8') for er in result])
-        )
-    else:
-        serialized_result = scheme.serialize_encrypted(result)
+    serialized_result = scheme.serialize_encrypted(result)
     print("> Sending computation result back to client")
     send_data(sock, serialized_result)
+
+    # Print to verify the result
+    print(Fore.CYAN)
+    print(f"# result: {result[0:max(1, min(4, len(result)))]}")
+    print(Fore.RESET)
 
     # Wait for client completion
     print("> Waiting for client completion...")
@@ -754,12 +774,11 @@ def run_server_operations(sock, scheme, config, public_context):
 #ANCHOR - SERVER
 def server(sock, scheme, config, public_context):
     """Server main function"""
-    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['nb_vitals']}bits"
+    folder_prefix = config["folder_prefix"] if config["folder_prefix"] != "" else f"server_{config['operation']}_{config['nb_data']}bits"
     annotation_str = (
         f"Server Operation | "
         f"NB_RUNS={config['nb_runs']}, "
-        f"NB_VITALS={config['nb_vitals']}, "
-        f"NB_PATIENTS={config['nb_patients']}, "
+        f"NB_DATA={config['nb_data']}, "
         f"KEY_LENGTH={config['key_length']}, "
         f"OPERATION={config['operation']}, "
         f"SCHEME={config['scheme']}"
@@ -783,10 +802,8 @@ if __name__ == '__main__':
     parser.add_argument("--operation", type=str, default="all",
                         help="Operation(s): 'add', 'add_encrypted', 'mul', 'all' or comma-separated list.")
     parser.add_argument("--nb_runs", type=int, default=2, help="Number of runs for the benchmark")
-    parser.add_argument("--nb_vitals", type=str, default="1024",
-                        help="Number of vitals per patient (integer or comma-separated list of values to test)")
-    parser.add_argument("--nb_patients", type=str, default="4",
-                        help="Number of patients (integer or comma-separated list of values to test)")
+    parser.add_argument("--nb_data", type=str, default="1024",
+                        help="Number of data elements (integer or comma-separated list of values to test)")
     parser.add_argument("--key_length", type=str, default="4096",
                         help="Key length in bits (integer or comma-separated list of values to test)")
     parser.add_argument("--nb_operations", type=int, default=16,
@@ -810,16 +827,12 @@ if __name__ == '__main__':
 
     # Parse operations
     operations = args.operation.split(',') if ',' in args.operation else \
-                ['add_scalar', 'add_encrypted', 'mul_scalar', 'mul_encrypted'] if args.operation == 'all' else [args.operation]
+                OPERATIONS_POSSIBLE if args.operation == 'all' else [args.operation]
 
-    # Parse number of vitals and patients
-    nb_vitals_list = (
-        [int(x.strip()) for x in args.nb_vitals.split(',')] if ',' in args.nb_vitals
-        else [int(args.nb_vitals)]
-    )
-    nb_patients_list = (
-        [int(x.strip()) for x in args.nb_patients.split(',')] if ',' in args.nb_patients
-        else [int(args.nb_patients)]
+    # Parse number of data elements
+    nb_data_list = (
+        [int(x.strip()) for x in args.nb_data.split(',')] if ',' in args.nb_data
+        else [int(args.nb_data)]
     )
 
     # Parse key lengths
@@ -834,37 +847,41 @@ if __name__ == '__main__':
         try:
             server_sock.bind(("0.0.0.0", args.port))
             server_sock.listen(1)
-            print(f"Server listening on port {args.port}")
+            print(f"! Server listening on port {args.port}")
             sock, addr = server_sock.accept()
-            print(f"Server accepted connection from {addr}")
+            print(f"! Server accepted connection from {addr}")
 
             for scheme_name in schemes_list:
                 scheme = SCHEMES[scheme_name]
                 for key_length in key_length_list:
-                    public_context = receive_public_context(sock, scheme)
 
-                    # Single loop for all combinations
-                    for nb_patients, nb_vitals, operation in itertools.product(nb_patients_list, nb_vitals_list, operations):
-                        
-                        reset_benchmark()
-                        config = {
-                            'nb_runs': args.nb_runs,
-                            'nb_vitals': nb_vitals,
-                            'nb_patients': nb_patients,
-                            'key_length': key_length,
-                            'operation': operation,
-                            'nb_operations': args.nb_operations,
-                            'folder_prefix': args.folder_prefix,
-                            'scheme': scheme_name
-                        }
+                    bool_contextGenerated = False
+                    for operation in operations:
+                        if not bool_contextGenerated or scheme_name == "tfhe":
+                            public_context = receive_public_context(sock, scheme)
+                            bool_contextGenerated = True
 
-                        print(Fore.YELLOW)
-                        print("Configuration:")
-                        for k, v in config.items():
-                            print(f"  {k}: {v}")
-                        print(Fore.RESET)
+                        # Single loop for all combinations
+                        for nb_data in nb_data_list:
+                            
+                            reset_benchmark()
+                            config = {
+                                'nb_runs': args.nb_runs,
+                                'nb_data': nb_data,
+                                'key_length': key_length,
+                                'operation': operation,
+                                'nb_operations': args.nb_operations,
+                                'folder_prefix': args.folder_prefix,
+                                'scheme': scheme_name
+                            }
 
-                        server(sock, scheme, config, public_context)
+                            print(Fore.YELLOW)
+                            print("> Configuration:")
+                            for k, v in config.items():
+                                print(f"  {k}: {v}")
+                            print(Fore.RESET)
+
+                            server(sock, scheme, config, public_context)
 
             sock.close()
         finally:
@@ -875,7 +892,7 @@ if __name__ == '__main__':
         client_sock = create_socket()
         try:
             client_sock.connect((args.client, args.port))
-            print(f"Client connected to {args.client}:{args.port}")
+            print(f"! Client connected to {args.client}:{args.port}")
 
             for scheme_name in schemes_list:
                 scheme = SCHEMES[scheme_name]
@@ -889,13 +906,12 @@ if __name__ == '__main__':
                             bool_contextGenerated = True
 
                         # Single loop for all combinations
-                        for nb_patients, nb_vitals in itertools.product(nb_patients_list, nb_vitals_list):
+                        for nb_data in nb_data_list:
                             
                             reset_benchmark()
                             config = {
                                 'nb_runs': args.nb_runs,
-                                'nb_vitals': nb_vitals,
-                                'nb_patients': nb_patients,
+                                'nb_data': nb_data,
                                 'key_length': key_length,
                                 'operation': operation,
                                 'nb_operations': args.nb_operations,
@@ -904,7 +920,7 @@ if __name__ == '__main__':
                             }
 
                             print(Fore.YELLOW)
-                            print("Configuration:")
+                            print("> Configuration:")
                             for k, v in config.items():
                                 print(f"  {k}: {v}")
                             print(Fore.RESET)

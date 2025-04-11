@@ -3,8 +3,8 @@ import tenseal as ts
 def client():
     key_modulus = 4096
     # Generate public and secret keys
-    context = ts.context(ts.SCHEME_TYPE.CKKS, key_modulus)
-    context.global_scale = pow(2, 40)
+    context = ts.context(ts.SCHEME_TYPE.CKKS, 4096, coeff_mod_bit_sizes=[30, 20, 20, 30])
+    context.global_scale = pow(2, 20)
     context.generate_galois_keys()
 
     # Generate secret key and drop secret key from public context
@@ -21,6 +21,8 @@ def client():
     #encrypted_scalar = ts.ckks_vector(context, scalar_vector)
 
     encrypted_result = server(encrypted_data, scalar)
+
+    print(encrypted_data.scale())
 
     # Decrypt the result
     decrypted_result = encrypted_result.decrypt(secret_key) 
