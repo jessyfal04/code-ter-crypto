@@ -5,6 +5,9 @@ import numpy as np
 def add(x, y):
     return x + y
 
+def str_to_int(x):
+    return int(x)
+
 # Step 2: Set up the compiler with encrypted input specifications
 compiler = fhe.Compiler(add, {"x": "encrypted", "y": "encrypted"})
 

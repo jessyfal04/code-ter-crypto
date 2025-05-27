@@ -45,15 +45,25 @@ cd ter; source .env/bin/activate
 ### Benchmark Config
 
 ### Add c2p / c2c
-benchmark_config=" --port 12345 --nb_runs 2 --nb_data 512 --key_length 4096 --nb_operations 4 --folder_prefix test --operation mul_scalar,mul_encrypted --scheme bfv,ckks"
-// faire pour 10
+<!-- benchmark_config=" --port 12345 --nb_runs 10 --nb_data 512 --key_length 4096 --nb_operations 4 --folder_prefix c2p_c2c --operation mul_scalar,mul_encrypted --scheme bfv,ckks"
+// faire pour 10 -->
 
 ### Add Encrypt
-benchmark_config=" --port 12345 --nb_runs 2 --nb_data 512 --key_length 4096 --nb_operations 32 --folder_prefix test2 --operation add_encrypted --scheme bfv,ckks,tfhe"
-// faire pour 10
+benchmark_config=" --port 12345 --nb_runs 2 --nb_data 1024 --key_length 4096 --nb_operations 128 --folder_prefix test --operation add_encrypted --scheme bfv"
+
+benchmark_config=" --port 12345 --nb_runs 10 --nb_data 16 --key_length 4096 --nb_operations  --folder_prefix add_encrypt --operation paillier_bfv --scheme paillier,bfv,ckks,tfhe"
+
+--
+
+benchmark_config=" --port 12345 --nb_runs 10 --nb_data 16 --key_length 4096 --nb_operations 16 --folder_prefix paillier_bfv --operation add_encrypted --scheme paillier,bfv
+
+benchmark_config=" --port 12345 --nb_runs 10 --nb_data 512 --key_length 4096 --nb_operations 32 --folder_prefix add_encrypt2 --operation add_encrypted --scheme paillier,bfv,ckks,tfhe"
+
+### Mul Encrypt
+benchmark_config=" --port 12345 --nb_runs 10 --nb_data 64 --key_length 4096 --nb_operations 16 --folder_prefix mul_encrypt --operation mul_encrypted --scheme bfv,ckks,tfhe"
 
 ### Key Size
-benchmark_config=" --port 12345 --nb_runs 2 --nb_data 512 --key_length 2048,4096 --nb_operations 32 --folder_prefix test3 --operation add_encrypted --scheme bfv,ckks"
+<!-- benchmark_config=" --port 12345 --nb_runs 1 --nb_data 128 --key_length 8192 --nb_operations 8 --folder_prefix test3 --operation add_encrypted --scheme bfv,ckks" -->
 
 ### Client Server
 python code/he_benchmark.py --client vm1 $benchmark_config

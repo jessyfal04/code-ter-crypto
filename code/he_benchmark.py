@@ -9,7 +9,7 @@ import itertools
 from abc import ABC, abstractmethod
 import base64
 import os
-
+import gc
 #NOTE HE LIBRARY
 from phe import paillier
 import tenseal as ts
@@ -36,6 +36,8 @@ def reset_benchmark():
     benchmark.decrypt_start_time = 0
     benchmark.decrypt_end_time = 0
 
+    gc.collect()
+
 #SECTION - HE SCHEMES
 class HEScheme(ABC):
     """Abstract base class for homomorphic encryption schemes"""
@@ -46,7 +48,7 @@ class HEScheme(ABC):
         pass
     
     @abstractmethod
-    def encrypt(self, public_context, private_context, message, message2=None):
+    def encrypt(self, public_context, message, private_context=None, message2=None):
         """Encrypt a message"""
         pass
     
@@ -103,7 +105,7 @@ class PaillierScheme(HEScheme):
         print(f"> Generating Keypair of length {key_length} bits")
         return paillier.generate_paillier_keypair(n_length=key_length)
     
-    def encrypt(self, public_context, private_context, message, message2=None):
+    def encrypt(self, public_context, message, private_context=None, message2=None):
         """Encrypt a message using Paillier"""
         return public_context.encrypt(message)
     
@@ -167,7 +169,7 @@ class BFVScheme(HEScheme):
         context.make_context_public()
         return context, private_context
     
-    def encrypt(self, public_context, private_context, message, message2=None):
+    def encrypt(self, public_context, message, private_context=None, message2=None):
         """Encrypt a message using BFV"""
         if isinstance(message, list):
             return ts.bfv_vector(public_context, message)
@@ -239,7 +241,7 @@ class CKKSScheme(HEScheme):
         context.make_context_public()
         return context, private_context
     
-    def encrypt(self, public_context, private_context, message, message2=None):
+    def encrypt(self, public_context, message, private_context=None, message2=None):
         """Encrypt a message using CKKS"""
         if isinstance(message, list):
             return ts.ckks_vector(public_context, message)
@@ -340,7 +342,7 @@ class TFHEScheme(HEScheme):
         
         return public_context, private_context
     
-    def encrypt(self, public_context, private_context, message, message2=None):
+    def encrypt(self, public_context, message, private_context=None, message2=None):
         """Encrypt a message using TFHE"""
         if message2 is None:
             message2 = message
@@ -664,13 +666,15 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
 
     # Encrypt data
     benchmark.encrypt_start_time = time.perf_counter()
+    print(f"> Encrypting {nb_data} elements")
     if isinstance(scheme, TFHEScheme):
         # For TFHE, we need to encrypt pairs of data together
         data2 = data if "encrypted" in operation else [scalar] * len(data)
-        encrypted_data = scheme.encrypt(public_context, private_context, data, data2)
+        encrypted_data = scheme.encrypt(public_context, data,private_context=private_context, message2=data2)
     else:
-        encrypted_data = [scheme.encrypt(public_context, private_context, m) for m in data]
+        encrypted_data = [scheme.encrypt(public_context, m) for m in data]
     print(f"> Computing {operation} on {nb_data} elements")
+    benchmark.encrypt_end_time = time.perf_counter()
 
     # Prepare data for computation
     data_to_compute = {
@@ -678,7 +682,6 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
         'scalar': scalar,
         'data': scheme.serialize_encrypted(encrypted_data)
     }
-    benchmark.encrypt_end_time = time.perf_counter()
 
     # Add second dataset for add_encrypted operation
     if "encrypted" in operation and not isinstance(scheme, TFHEScheme):
@@ -692,8 +695,9 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
     serialized_data = receive_data(sock)
 
     # Process result
-    benchmark.decrypt_start_time = time.perf_counter()
     encrypted_result = scheme.deserialize_encrypted(serialized_data, public_context)
+    
+    benchmark.decrypt_start_time = time.perf_counter()
     decrypted_result = [scheme.decrypt(private_context, m) for m in encrypted_result]
     benchmark.decrypt_end_time = time.perf_counter()
 
