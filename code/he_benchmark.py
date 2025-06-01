@@ -704,7 +704,8 @@ def run_client_operations(sock, scheme, operation, public_context, private_conte
     # Print to verify the result
     print(Fore.CYAN)
     print(f"# data: {data[0:max(1, min(4, len(data)))]}")
-    print(f"# scalar: {scalar}")
+    if "encrypted" not in operation:
+        print(f"# scalar: {scalar}")
     print(f"# operation: {operation}")
     print(f"# result: {decrypted_result[0:max(1, min(4, len(decrypted_result)))]}")
     print(Fore.RESET)
